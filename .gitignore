@@ -1,0 +1,10 @@
+# directories
+/results
+/VBA-toolbox
+/data
+/source/results
+
+# files
+matlab_analysis*
+._*
+.DS_Store

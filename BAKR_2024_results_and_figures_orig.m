@@ -1,0 +1,746 @@
+%
+% Results and figures for Buergi, Aydogan, Konovalov, & Ruff (2024):
+% "A neural fingerprint of adaptive mentalization" 
+%
+% To re-create the files used herein, use run_model_fitting and run_fmri_analysis
+%
+
+%% set folder
+
+project_folder = cd;
+
+% code
+addpath(fullfile(project_folder,'source'));
+addpath(fullfile(project_folder,'source','MERLIN_toolbox'));
+
+%% preparation
+
+% plotting
+colors = get_matlab_colors();
+level_colors(1,:) = [50,130,150]/255;
+level_colors(2,:) = [60,130,100]/255;
+level_colors(3,:) = [130,170,80]/255;
+level_colors(4,:) = [180,200,60]/255;
+
+% set(groot,'DefaultAxesLineWidth',2)
+% set(groot,'defaultAxesFontSize',12)
+
+% data
+results_folder = fullfile(project_folder,'results');
+load(fullfile(results_folder,'fits_CHASE_table.mat'),'data'); % in table format
+all_fits = data;
+
+%% -------------------------------------------------------------------------- %
+%                    Fig 2: Behavioral findings
+% -------------------------------------------------------------------------- %%
+
+figure('Name','Behavioral and model-based evidence for adaptive mentalization.',...
+       'Units','normalized','Position',[0.2,0.2,0.6,0.6]);
+
+%% 2a) perception of opponents
+
+load(fullfile(project_folder,'data','ratings.mat'));
+
+w = 0.2;
+new_c = colors;
+new_c(2,:) = w*colors(2,:) + (1-w)*colors(3,:);
+new_c(3,:) = w*colors(2,:) + (1-w)*colors(3,:);
+
+subplot(3,9,1:3); hold on;
+for i_group = 1:3
+    curr_data = data.rating_per_opp(data.group == i_group,:);
+    mn_sinaplot(curr_data(:),0.5:0.1:5.5,i_group,new_c(i_group,:),15,1.25,[],[],0.25);
+end
+xlim([0.25,3.75]); ylim([0.5,5.5]);
+xticks(1:3); yticks(1:5);
+xticklabels({"Human","Bot v1","Bot v2"});
+yticklabels({"","","","",""});
+title('Perception of opponents');
+xlabel('Opponent type');
+
+[~,p,ksstat] = kstest2(data.rating_overall(data.group == 1),data.rating_overall(data.group ~= 1))
+
+x1 = data.rating_per_opp(data.group == 1,:);
+x2 = data.rating_per_opp(data.group ~= 1,:);
+[~,p,ksstat] = kstest2(x1(:),x2(:))
+
+%% 2b) model comparison
+            
+load(fullfile(results_folder,'model_comparison.mat'));
+
+subplot(3,9,4:6);
+[~,stats] = mn_compare(fits,'group','dataset','use_current_fig');
+set(gca,'FontSize',16);
+title('Model comparison');
+xlabel('Protected exceedance prob.');
+set(gca,'FontSize',12);
+l = legend;
+set(legend,'FontSize',8,'Position',[0.25,0.65,0.1,0.1]);
+
+yticklabels({'Fict','EWA','RL','ToMk','EWA-S','CHASE'});
+
+% exportgraphics(gca,'model_comparison.png','Resolution',300);
+
+pxp_dataset = arrayfun(@(dataset) dataset.rand.AIC.pxp(1),stats)
+
+% per opponent type
+[~,stats] = mn_compare(fits,'group','opp_type','flag_plot',0);
+pxp_opp_type = arrayfun(@(dataset) dataset.rand.AIC.pxp(1),stats)
+
+%% 2c) model recovery
+
+subplot(3,9,7:9);
+load(fullfile(project_folder,'results','model_recovery.mat'),'sim_fits');
+counts = BAKR_2024_model_recovery_plot(sim_fits,[1,6,3,5,2,4]);
+
+% shorten labels
+a = gca;
+a.YTickLabel{3} = 'EWA-S';
+a.YTickLabel{4} = 'Fict';
+a.YTickLabel{5} = 'RL';
+a.YTickLabel{6} = 'EWA';
+
+y = yticklabels;
+for i_y = 1:numel(y)
+    y{i_y} = sprintf('%s (%i)',y{i_y},i_y);
+end
+yticklabels(y);
+xticklabels({'(1)','(2)','(3)','(4)','(5)','(6)'});
+xtickangle(0);
+
+% misattributions
+mean(counts(1,2:end))
+mean(counts(2:end,1))
+
+%% 2d) posterior predictive check
+
+BAKR_2024_posterior_predictive_check(project_folder,'main',{3,9,10:15});
+
+%% 2e) performance per opponent type (model-free)
+
+fit = all_fits(contains(all_fits.dataset,{'2d','2e'}),:);
+subjects = unique(fit.subjID);
+
+% compute scores against different opponent types
+win_rate = NaN(numel(subjects),3);
+for i_subj = 1:numel(subjects)
+    for bot = 0:2
+        idx = (fit.subjID == subjects(i_subj) & fit.bot_level == bot);
+        win_rate(i_subj,bot+1) = nanmean(fit.score_own(idx));
+    end
+end
+
+% compute chance (whole sample)
+n = 1000;
+pi = [0 1 -1]; % <- overall score
+sample_score = NaN(n,1);
+for ii = 1:n
+    a = mnrnd(80,[1/3 1/3 1/3],numel(subjects));
+    individual_scores = a * pi' / 80; 
+    sample_score(ii) = mean(individual_scores);
+end    
+chance_upper = prctile(sample_score,97.5);
+chance_lower = prctile(sample_score,2.5);
+
+% plot
+subplot(3,9,16:18);
+fill([0.26,0.26,3.75,3.75],[chance_lower,chance_upper,chance_upper,chance_lower],[0.9,0.9,0.9],'FaceAlpha',0.8,'EdgeAlpha',0);
+for ii = 1:3
+    mn_sinaplot(win_rate(:,ii),-1:0.01:1,ii,level_colors(ii,:),20,0.12);
+end
+
+title('Overall score against different opponent types');
+ylim([-0.35,0.65]);
+yticks(-0.2:0.2:0.6);
+xlim([0.25,3.75]);
+xticks(1:3);
+xticklabels({"k=0","k=1","k=2"});
+xlabel("Opponent level");
+box off
+
+% ----------------------------------- stats ---------------------------------- %
+
+% test against chance per level
+for k = 1:3
+    [~,p(k),~,STATS] = ttest(win_rate(:,k));
+    tstat(k) = STATS.tstat;
+end
+max(p)
+min(tstat)
+
+% mixed model for effect of k
+t = table();
+t.subj = repmat(1:size(win_rate,1),1,3)';
+t.k = repelem(1:3,size(win_rate,1))';
+t.score = win_rate(:);
+lme = fitlme(t,'score ~ 1 + k + (k|subj)')
+tbl = anova(lme,'DFMethod','satterthwaite')
+
+% ---------------------------- model-based stats ----------------------------- %
+
+% kappa distribution
+subjects = unique(fit.subjID);
+for i_subj = 1:numel(subjects)
+    kappa(i_subj) = unique(fit.kappa(fit.subjID == subjects(i_subj)));
+end
+histcounts(kappa,'Normalization','probability')
+
+% correctly inferring level-2 opponent above chance (belief > .5)
+correct_inf = NaN(numel(subjects),1);
+for i_subj = 1:numel(subjects)
+    correct_inf(i_subj) = any(fit.beliefs(fit.subjID == subjects(i_subj) & fit.bot_level == 2,3) > 0.5);
+end
+mean(correct_inf)
+
+%% 2f) gameplay per opponent type (model-based)
+
+% infer played level based on best-response to beliefs (i.e. k+1)
+fit.exp_k_played = zeros(height(fit),4);
+fit.exp_k_played(fit.kappa == 0,1) = 1;
+fit.exp_k_played(fit.kappa == 1,2) = 1;
+fit.exp_k_played(fit.kappa == 2,2:3) = fit.beliefs(fit.kappa == 2,1:2);
+fit.exp_k_played(fit.kappa == 3,2:4) = fit.beliefs(fit.kappa == 3,:);
+
+subjects = unique(fit.subjID);
+n_subj = numel(subjects);
+
+for curr_bot = 0:2
+
+    subplot(3,9,[19,20]+curr_bot*2); hold on;
+    idx = (fit.bot_level == curr_bot);
+
+    % count trials above cutoff
+    level_counts = NaN(numel(subjects),4);
+    for i_subj = 1:n_subj
+        idx_subj = (idx & fit.subjID == subjects(i_subj));
+        level_counts(i_subj,:) = mean(fit.exp_k_played(idx_subj,:) > 0.5); % exp_p_k
+    end
+
+    b = bar(mean(level_counts),'FaceAlpha',0.5,'FaceColor',level_colors(curr_bot+1,:),'EdgeColor',level_colors(curr_bot+1,:),'LineWidth',1.5);
+    b = bar(sort(level_counts',2),'FaceAlpha',0.2,'FaceColor',level_colors(curr_bot+1,:),'EdgeColor',level_colors(curr_bot+1,:),'EdgeAlpha',0.2);
+
+    xticks(1:4); xticklabels(0:3); 
+    xlim([0,5]); ylim([0,1]);
+    set(gca,'linewidth',1.5);
+    yticks(0:0.2:1); yticklabels({});
+    box off
+    
+    if curr_bot == 0
+        yticklabels({'0','0.2','0.4','0.6','0.8','1'});
+        ylabel("% of trials");
+    end
+    if curr_bot == 1
+        title("Gameplay per opponent type");
+        xlabel("Estimated subject level");
+    end
+    
+end
+
+%% 2g) opponent level belief updates
+
+% extract z-scored timecourses
+fit_z = fit;
+kl_div = [];
+ii = 1;
+for subj = unique(fit.subjID)'
+    fit_z.subj_KL_div(fit.subjID == subj & ~fit.missing) = zscore(fit.subj_KL_div(fit.subjID == subj & ~fit.missing));
+    for block = 1:6
+        kl_div(ii,:) = fit_z.subj_KL_div(fit_z.subjID == subj & fit_z.block == block);
+        ii = ii + 1;
+    end
+end
+
+% plot
+subplot(3,9,25:27); hold on;
+p = plot(kl_div','Color',[colors(1,:) 0.02]);
+stdshade(kl_div,0.2,colors(1,:));
+plot(nanmean(kl_div), 'k', 'LineWidth',1);
+ylim([-1.5,4]);
+xlim([0,40]);
+xlabel("Trials with current opponent");
+% ylabel("Belief update");
+title("Opponent level belief updates");
+
+% ------------------------- additional analyses ------------------------------ &
+
+% time course
+data = table();
+kl_div_T = kl_div';
+n_blocks = 6;
+n_trials = 40;
+n_subj = size(kl_div,1)/n_blocks;
+data.kl_div = kl_div_T(:);
+data.trial = repmat([1:40]',n_subj*n_blocks,1);
+data.subj = repelem([1:n_subj]',n_blocks*n_trials,1);
+lme = fitlme(data,'kl_div ~ 1 + trial + (trial | subj)')
+tbl = anova(lme,'DFMethod','satterthwaite')
+
+% level and RTs
+data = all_fits;
+data.logRT = log(data.RT);
+
+% compute level point estimate
+data.subj_level(data.kappa == 3) = data.beliefs(data.kappa == 3,:) * [0 1 2]';
+data.subj_level(data.kappa == 2) = data.beliefs(data.kappa == 2,1:2) * [0 1]';
+
+data_z = data;
+vars = {'subj_level','bot_level','logRT'};
+for i_var = 1:numel(vars)
+    idx = ~isnan(data.(vars{i_var}));
+    data_z.(vars{i_var})(idx) = zscore(data_z.(vars{i_var})(idx));
+end
+
+idx = contains(data_z.dataset,'2a');
+lme = fitlme(data_z(idx,:),'logRT ~ 1 + bot_level + subj_level + (1 + bot_level + subj_level | subjID)')
+tbl = anova(lme,'DFMethod','satterthwaite')
+
+idx = contains(data_z.dataset,'2e');
+lme = fitlme(data_z(idx,:),'logRT ~ 1 + bot_level + subj_level + (1 + bot_level + subj_level | subjID)')
+tbl = anova(lme,'DFMethod','satterthwaite')
+
+%% -------------------------------------------------------------------------- %
+%                          Supplementary analyses
+% -------------------------------------------------------------------------- %%
+
+%% level distribution in human-human gameplay
+
+load(fullfile(project_folder,'results','supplementary','fits_LK_perblock.mat'),'fits_LK_perblock');
+ks = arrayfun(@(subj) [subj.params.kappa],fits_LK_perblock.subj,'UniformOutput',0);
+
+datasets = arrayfun(@(subj) subj.data.dataset,fits_LK_perblock.subj);
+idx_RPS3 = contains(datasets,'Human, RPS-3');
+idx_RPS4 = contains(datasets,'Human, RPS-4');
+
+figure;
+subplot(1,3,1);
+histogram([ks{idx_RPS3 | idx_RPS4}],'Normalization','probability');ylim([0,0.4]); title('All human data'); ylabel('Frequency'); xlabel('Levels');
+subplot(1,3,2);
+histogram([ks{idx_RPS4}],'Normalization','probability'); ylim([0,0.4]); title('Only RPS-4'); xlabel('Levels');
+subplot(1,3,3);
+histogram([ks{idx_RPS3}],'Normalization','probability'); ylim([0,0.4]); title('Only RPS-3'); xlabel('Levels');
+
+% exportgraphics(gcf,'level_distribution_human_human.png');
+
+%% LR recovery
+
+figure; 
+load(fullfile(project_folder,'results','supplementary','model_recovery_LR.mat'),'sim_fits');
+BAKR_2024_model_recovery_plot(sim_fits,[1,2,4,3]);
+
+% exportgraphics(gcf,'model_recovery_LR.png','Resolution',300);
+
+%% LR comparisons
+
+load(fullfile(project_folder,'results','supplementary','model_comparison_LR.mat'),'fits_LR');
+fits_LR(3:4) = [];
+
+% per opponent type
+figure;
+subplot(1,2,1); 
+[~,stats_opp_type] = mn_compare(fits_LR,'group','opp_type','use_current_fig');
+title('Opponent type'); xlabel('PXP');
+
+% adjust colors
+a = gca;
+a.Children = flipud(a.Children);
+f = gcf;
+f.Children(1).String = fliplr(f.Children(1).String);
+legend('Bot','Human');
+col =  0.5*colors(2,:) + 0.5*(colors(3,:));
+f.Children(2).Children(2).FaceColor = col;
+f.Children(2).Children(2).EdgeColor = col;
+f.Children(2).Children(2).EdgeAlpha = .8;
+f.Children(2).Children(2).FaceAlpha = .7;
+f.Children(2).Children(1).EdgeAlpha = .7;
+f.Children(2).Children(1).FaceAlpha = .6;
+
+% per dataset
+subplot(1,2,2);
+[~,stats_datasets] = mn_compare(fits_LR,'group','dataset','use_current_fig');
+title('Individual datasets'); xlabel('PXP');
+f.Children(1).FontSize = 8;
+
+% stats
+pxp_opp_type = arrayfun(@(dataset) dataset.rand.AIC.pxp(1),stats_opp_type)
+pxp_dataset = arrayfun(@(dataset) dataset.rand.AIC.pxp(1),stats_datasets)
+
+%% param recovery
+
+load(fullfile(project_folder,'results','supplementary','parameter_recovery.mat'),'prec');
+
+figure;
+params = {prec.model.params.name};
+gen = prec.params.gen;
+est = prec.params.est;
+est(est(:,end) < 2,3) = NaN; % no gamma
+est(est(:,end) == 0,2) = NaN; % no lambda, either
+param_lims = [0.4,4.2; 0,3.6; 0,10; 0,1; -0.5,3.5];
+
+% individual parameters
+ii = 1;
+for i_param = [4,1:3,5]
+    subplot(2,numel(params),ii); hold on;
+    plot(param_lims(i_param,:),param_lims(i_param,:),'k--','Color',ones(1,4)*0.7);
+    if i_param == 5
+        noise = normrnd(0,0.15,size(gen,1),2);
+        scatter(gen(:,i_param)+noise(:,1),est(:,i_param)+noise(:,2),'filled','MarkerFaceAlpha',0.1,'MarkerEdgeAlpha',0.3,'MarkerEdgeColor',colors(1,:),'CData',colors(1,:));
+    else
+        scatter(gen(:,i_param),est(:,i_param),'filled','MarkerFaceAlpha',0.1,'MarkerEdgeAlpha',0.3,'MarkerEdgeColor',colors(1,:),'CData',colors(1,:));
+    end
+    [r,p] = corr(gen(:,i_param),est(:,i_param),'rows','pairwise');
+    title({params{i_param},sprintf('r = %.2f',r)});
+    xlim(param_lims(i_param,:)), ylim(param_lims(i_param,:));
+    xlabel('Generating');
+    axis square;
+    ii = ii + 1;
+    if i_param == 3, rectangle('Position',[0,0,2.5,2.5],'LineWidth',0.1,'EdgeColor',[0 0 0 0.7]); end
+    if i_param == 4, ylabel('Recovered'); end
+end
+
+% zoom in on most relevant gamma range
+subplot(2,numel(params),9); hold on;
+lims = [0,2.5];
+plot(lims,lims,'k--','Color',ones(1,4)*0.7);
+scatter(gen(:,3),est(:,3),'filled','MarkerFaceAlpha',0.1,'MarkerEdgeAlpha',0.3,'MarkerEdgeColor',colors(1,:),'CData',colors(1,:));
+rectangle('Position',[0,0,2.5,2.5],'LineWidth',0.1,'EdgeColor',[0 0 0 0.7]);
+xlim(lims); ylim(lims);
+xlabel('Generating');
+axis square;
+box off;
+
+% exportgraphics(gcf,'param_rec.png','Resolution',300);
+
+mean(gen(:,3) <= 2.5)
+
+%% effect of lowering the upper bound on gamma
+
+load(fullfile(project_folder,'results','supplementary','fits_bounded.mat'),'fits_bounded');
+
+gamma = arrayfun(@(subj) subj.params.gamma,fits_bounded(1).subj);
+mean(gamma > 10)
+gamma = arrayfun(@(subj) subj.params.gamma,fits_bounded(2).subj);
+mean(gamma == 10)
+mean(gamma > 2.5)
+
+idx_high_gamma = find(gamma > 2.5);
+
+clear negLL
+for i_fit = 1:numel(fits_bounded)
+    negLL(:,i_fit) = arrayfun(@(subj) subj.optim.negLL,fits_bounded(i_fit).subj(idx_high_gamma));
+end
+perc_decrease = max(negLL(:,2:end) - negLL(:,1),0)./negLL(:,1)*100;
+
+% effect on likelihoods
+figure; hold on;
+yline(0,'k--');
+plot(perc_decrease','Color',ones(1,4)*0.2);
+scatter(repelem([1:(size(negLL,2)-1)]',size(negLL,1),1),perc_decrease(:),'CData',colors(1,:));
+err = nanstd(perc_decrease)./sqrt(size(perc_decrease,1));
+errorbar(nanmean(perc_decrease),err,':','Color',[0.1 0.1 0.1 0.8],'LineWidth',2)
+scatter(1:size(perc_decrease,2),nanmean(perc_decrease),'SizeData',75,'MarkerFaceColor',colors(1,:),'MarkerEdgeColor','k','LineWidth',2);
+xticks(1:numel(fits_bounded)); xticklabels([10,5,2.5,1,0.5,0.1]);
+xlabel('Upper bound on gamma');
+ylabel({'% decrease in likelihood','(relative to an unbounded model)'});
+lims = ylim();
+ylim([-0.25,lims(2)]);
+xlim([0.5,size(perc_decrease,2)+0.5]);
+f = gcf;
+f.Position = [1000 1022 493 216];
+
+% exportgraphics(gcf,'gamma_UB_likelihoods.png','Resolution',300)
+
+% effect on BU
+ii = 1;
+figure; hold on;
+for i_fit = [2,4]
+
+    BU = arrayfun(@(subj) subj.states.subj_KL_div,fits_bounded(i_fit).subj,'UniformOutput',0);
+
+    BU = cat(2,BU{:});
+    for i_subj = 1:size(BU,2)
+        idx = ~isnan(BU(:,i_subj));
+        BU(idx,i_subj) = zscore(log(BU(idx,i_subj)+1e-3));
+    end
+    l(ii) = stdshade(BU',0.4,colors(ii,:),[],[],'sem',0.7);
+    BUs(:,:,ii) = BU;
+    UB(ii) = fits_bounded(i_fit).model.params(3).support(2);
+    ii = ii + 1;
+    
+end
+xlim([0,240]);
+xlabel('Trial');
+xline([41,81,121,161,201],'--','Color',ones(1,3)*0.6,'LineWidth',2);
+legend(l,{['UB = ' num2str(UB(1))],['UB = ' num2str(UB(2))]});
+ylabel('Belief update');
+
+f = gcf;
+f.Position = [770 1064 721 142];
+% exportgraphics(gcf,'gamma_UB_BUs.png','Resolution',300)
+
+% correlations
+for i_subj = 1:size(BUs,2)
+    r(i_subj) = corr(BUs(:,i_subj,1),BUs(:,i_subj,2),'rows','pairwise');
+end
+tanh(mean(atanh(r(idx_high_gamma))))
+mean(r>.8)
+
+%% posterior predictive for alternative models
+
+BAKR_2024_posterior_predictive_check(project_folder,'all')  
+
+%% parameter estimates
+
+fit = all_fits(contains(all_fits.dataset,{'2d','2e'}),:);
+
+params = {'alpha','beta','lambda','gamma','kappa'};
+labels = {'\alpha','\beta','\lambda','\gamma','\kappa'};
+subjects = unique(fit.subjID);
+for i_subj = 1:numel(subjects)
+    for i_param = 1:numel(params)
+        param.(params{i_param})(i_subj) = unique(fit.(params{i_param})(fit.subjID == subjects(i_subj)));
+    end
+end
+
+figure;
+for i_param = 1:numel(params)
+
+    subplot(1,numel(params),i_param);
+    curr_vals = param.(params{i_param});
+    mn_sinaplot(curr_vals,linspace(min(curr_vals),max(curr_vals),100),1,colors(1,:),28);
+    ylim([min(curr_vals),max(curr_vals)]);
+    xticks([]);
+    switch params{i_param}
+        case 'alpha', yticks(0:0.2:1); ylim([0,1]);
+        case 'beta', yticks(1.5:1:4.5);
+        case 'lossav', yticks(0:0.4:1.6); ylim([0,max(curr_vals)]);
+        case 'rho', yticks(0:2:10); ylim([0,max(curr_vals)]);
+        case 'kappa', yticks(0:3);
+    end
+    a = gca;
+    a.LineWidth = 1;
+    a = get(gca,'XTickLabel');  
+    set(gca,'XTickLabel',a,'fontsize',12,'FontWeight','normal');
+    set(gca,'XTickLabelMode','auto')
+    set(gca,'linewidth',1.5); 
+    xlabel(labels{i_param},'FontSize',17,'FontWeight','bold');
+    
+end
+f = gcf;
+f.Position = [1014 1060 641 277];
+
+%% parameter correlations
+
+% extract estimates
+data_subjlevel = table();
+subjects = unique(all_fits.subjID);
+n_subj = numel(subjects);
+vars = {'subjID','dataset','alpha','beta','gamma','lambda','kappa'};
+for i_subj = 1:n_subj
+
+    idx_first = find(all_fits.subjID == subjects(i_subj),1);
+    new_data = table();
+    for i_var = 1:numel(vars)
+        new_data.(vars{i_var}) = all_fits.(vars{i_var})(idx_first);
+    end
+    data_subjlevel = [data_subjlevel; new_data];
+
+end
+
+% parameter censoring (as certain parameters are effectively removed from
+% the model for low values of kappa)
+data_subjlevel.gamma(data_subjlevel.kappa < 2) = NaN; 
+data_subjlevel.lambda(data_subjlevel.kappa == 0) = NaN;
+
+params = vars;
+data = data_subjlevel;
+datasets = unique(data.dataset);
+
+% correlations
+[R_all,P_all] = corr(table2array(data(:,3:7)),'type','Spearman','rows','pairwise');
+R_all .* double(P_all < 0.01) 
+
+figure;
+subplot(3,6,[1:3,7:9,13:15]);
+imagesc(R_all,[-1,1]); cb = colorbar;
+yl = ylabel(cb,'Correlation','FontSize',12,'Rotation',270,'FontWeight','bold');
+idx_fig = [4:6,10:12,16:18];
+title('Pooled data');
+axis square
+
+xticks(1:numel(params)); xticklabels(params);
+yticks(1:numel(params)); yticklabels(params);
+
+clear new_Rs Rs
+params = {'alpha','beta','gamma','lambda','kappa'};
+for i_dataset = 1:numel(datasets)
+
+    idx = strcmp(data.dataset,datasets{i_dataset});
+    [R,P] = corr(table2array(data(idx,3:7)),'type','Spearman','rows','pairwise');
+    subplot(3,6,idx_fig(i_dataset)); 
+    imagesc(R,[-1,1]);
+    hold on;
+
+    title(datasets{i_dataset}(1:2));
+    xticks(1:numel(params)); xticklabels({''});
+    yticks(1:numel(params)); yticklabels({''});
+    axis square
+
+    new_Rs = R(tril(ones(numel(params)),-1) == 1);
+    Rs(:,i_dataset) = new_Rs;
+
+end
+
+% exportgraphics(gcf,'parameter_correlations.png');
+
+r_pos = tril(reshape([1:25],5,5)',-1);
+r_pos = r_pos(r_pos ~= 0);
+
+% effect of task parameters
+t = table();
+t.dataset = datasets;
+t.FP = [1 1 0 1 1 0 0 0]';
+t.RPS4 = [1 1 0 1 0 0 0 0]';
+t.human = [1 1 1 0 0 0 0 0]';
+for i_corr = 1:size(Rs,1)
+    t.r = Rs(i_corr,:)';
+    lm = fitlm(t,'r ~ 1 + FP + RPS4 + human');
+    idx_sig = (lm.Coefficients.pValue(2:end) < 0.05/size(Rs,1));
+    if any(idx_sig)
+        i_corr
+        r_pos(i_corr)
+        params{mod(r_pos(i_corr),5)}
+        params{ceil(r_pos(i_corr)/5)}
+        lm.Coefficients(find(idx_sig)+1,:)
+    end
+end
+
+%% effect of hyperparameter tuning
+
+if isfolder(fullfile(project_folder,'results','pmod_ordinal'))
+
+    decoding_folder = fullfile(project_folder,'results','pmod_ordinal','decoding_belief_updates','fb_meanbetas');
+    load(fullfile(decoding_folder,'train_all','effect_of_regularization.mat'),'all_stats');
+    
+    models = {'no regularization','nested within subj','nested 5-fold','all 5-fold'};
+    
+    % === primary === %
+    
+    figure; 
+    subplot(1,2,1); hold on;
+    for i_model = 1:4
+    
+        stats = all_stats{i_model};
+        if i_model == 1
+            teIdx = stats.teIdx;
+        end
+        for i_subj = 1:numel(teIdx)
+            idx = teIdx{i_subj};
+            [rs(i_subj),ps(i_subj)] = corr(stats.yfit(idx),stats.Y(idx));
+        end
+        if i_model == 1
+            yline(mean(rs),'k--');
+        end
+    
+        mn_sinaplot(rs,-1:0.01:1,i_model,[],[],0.2);
+    
+    end
+    title('Primary sample (LOO-CV)');
+    ylabel('Correlation coefficient');
+    xticks(1:numel(models));
+    xticklabels(models);
+    
+    % === replication === %
+    
+    replication_decoding_folder = fullfile(project_folder,'results','replication','pmod_ordinal','decoding_belief_updates','fb_meanbetas');
+    load(fullfile(replication_decoding_folder,'predictions','pred_control_analyses.mat'),'r');
+    
+    subplot(1,2,2); hold on;
+    for i_model = 1:4
+    
+        if i_model == 1
+            yline(mean(r(:,i_model)),'k--');
+        end
+        mn_sinaplot(r(:,i_model),-1:0.1:1,i_model,[],[],0.2);
+    
+    end
+    title('Replication sample');
+    xticks(1:numel(models)); xticklabels(models);
+    ylabel('Correlation coefficient');
+    sgtitle('Decoding accuracy for differerent hyperparameter tuning strategies');
+    
+    % exportgraphics(gcf,'decoding_hyperparameter_analysis.png');
+
+end
+
+%% alternative decoding visualizations (individual bins)
+
+% === primary === %
+
+% load decoding data
+load(fullfile(project_folder,'results','decoding','decoding.mat'),'stats');
+
+figure; 
+subplot(1,2,1); hold on;
+
+% regression lines individual subjects
+clear r
+bins = linspace(-1,1,5);
+for i_subj = 1:numel(stats.teIdx)
+    
+    idx = stats.teIdx{i_subj};
+    p = plot(stats.yfit(idx),stats.Y(idx));
+    p.Color = [colors(1,:) 0.2];
+
+    if sum(idx) == 5
+        yfit(i_subj,:) = stats.yfit(idx);
+    else
+        [yfit(i_subj,:),Y(i_subj,:)] = deal(NaN);
+        for curr_bin = stats.Y(idx)'
+            idx_curr = (idx & stats.Y == curr_bin);
+            yfit(i_subj,find(bins == curr_bin)) = stats.yfit(idx_curr);
+        end
+    end
+    
+end
+plot(nanmean(yfit),bins,'LineWidth',3,'Color',colors(1,:)); 
+
+% regression line pooled data
+xlim([-2,2]);
+xticks(-2:2);
+yticks(-1:0.5:1);
+
+% identity
+plot(bins,bins,'k--');
+
+set(gca,'XTickLabelMode','auto')
+title('Training sample (LOO-CV)');
+xlabel('Decoded belief update');
+ylabel('True belief update');
+
+% === replication === %
+
+load(fullfile(project_folder,'results','decoding','decoding_replication.mat'),'data');
+data(32,:) = []; % remove chance participant (3035)
+BU_hat = data.BU_hat;
+r = data.r;
+
+% regression lines individual subjects
+clear new_r
+subplot(1,2,2); hold on;
+for i_subj = 1:size(BU_hat,1)
+    p = plot(BU_hat(i_subj,:),bins);
+    p.Color = [colors(1,:) 0.2];
+end
+plot(nanmean(BU_hat),bins,'LineWidth',3,'Color',colors(1,:)); 
+xlim([-2,2]);
+xticks(-2:2);
+yticks(-1:0.5:1);
+
+% identity line
+plot(bins,bins,'k--');
+
+title('Replication sample');
+xlabel('Decoded belief update');
+ylabel('True belief update');
+
+% exportgraphics(gcf,'decoding_lines.png','Resolution',300);

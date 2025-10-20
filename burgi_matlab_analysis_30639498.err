@@ -1,0 +1,4 @@
+Detected OS: RedHatEnterprise 8.10
+alsa-lib/1.2.6
+MATLAB/2022a
+/var/spool/slurmd/job30639498/slurm_script: line 146: /rds/projects/z/zhanglp-aamir-core/chase/logs/memory_usage_30639498.log: No such file or directory
