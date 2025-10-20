@@ -5,6 +5,7 @@
 /source/results
 
 # files
+matlab_analysis*
 burgi_matlab_analysis*
 ._*
 .DS_Store
