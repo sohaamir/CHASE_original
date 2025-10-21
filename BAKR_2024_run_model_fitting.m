@@ -60,9 +60,40 @@ fprintf('========================================\n\n');
 
 %% Convert to struct (block structure will be auto-inferred)
 fprintf('Converting to struct format...\n');
-data = mn_table2struct(data,'subjID','remove_redundancy',...
-                      'exceptions',{'choice_own','choice_other','missing'},...
-                      'block_var','block');
+
+% First, check each subject's block structure
+subjects = unique(data.subjID);
+for i = 1:numel(subjects)
+    idx = (data.subjID == subjects(i));
+    n_unique_blocks = numel(unique(data.block(idx)));
+    has_multiple_blocks(i) = (n_unique_blocks > 1);
+end
+
+% Separate single-block and multi-block subjects
+idx_single = ismember(data.subjID, subjects(~has_multiple_blocks));
+idx_multi = ismember(data.subjID, subjects(has_multiple_blocks));
+
+% Convert single-block subjects WITHOUT block_var
+if any(idx_single)
+    data_single = mn_table2struct(data(idx_single,:), 'subjID', 'remove_redundancy', ...
+                                  'exceptions', {'choice_own','choice_other','missing'});
+end
+
+% Convert multi-block subjects WITH block_var
+if any(idx_multi)
+    data_multi = mn_table2struct(data(idx_multi,:), 'subjID', 'remove_redundancy', ...
+                                 'exceptions', {'choice_own','choice_other','missing'}, ...
+                                 'block_var', 'block');
+end
+
+% Combine both
+if any(idx_single) && any(idx_multi)
+    data = [data_single; data_multi];
+elseif any(idx_single)
+    data = data_single;
+else
+    data = data_multi;
+end
 
 %% Verify conversion
 fprintf('\nVerifying struct conversion:\n');
@@ -169,9 +200,8 @@ end
 %% model recovery: learning rule
 try
     fprintf('Running model recovery for learning rules...\n');
-    sims = BAKR_2024_simulate_data(fits_LR, idx_fmri);
+    sims = BAKR_2024_simulate_data_LLM(fits_LR, idx_fmri);  % Added _LLM
     
-    % fit all simulated data with all models
     models = {fits_LR.model};
     sim_fits = mn_fit(sims', models);
     save(fullfile(output_dir,'supplementary','model_recovery_LR.mat'),'sims','sim_fits');
@@ -184,9 +214,8 @@ end
 %% model recovery: full model
 try
     fprintf('Running model recovery for full model...\n');
-    sims = BAKR_2024_simulate_data(fits, idx_fmri);
+    sims = BAKR_2024_simulate_data_LLM(fits, idx_fmri);  % Added _LLM
     
-    % fit all simulated data with all models
     models = {fits.model};
     sim_fits = mn_fit(sims', models);
     save(fullfile(output_dir,'model_recovery.mat'),'sims','sim_fits');
@@ -200,14 +229,9 @@ end
 try
     fprintf('Running parameter recovery...\n');
     
-    % Remove excluded subjects if needed (adapt for your data)
-    subjID_old = arrayfun(@(subj) subj.data.subjID, fits(1).subj(idx_fmri));
-    % idx_fmri(any(subjID_old == [7,94],2)) = []; % Skip this for your data
-    
-    % simulate
     [sims,params] = deal([]);
     for k = 0:3
-        [new_sims,new_params] = BAKR_2024_simulate_data(fits(1), idx_fmri, k);
+        [new_sims,new_params] = BAKR_2024_simulate_data_LLM(fits(1), idx_fmri, k);  % Added _LLM
         params = [params; new_params];
         sims = [sims new_sims];
     end
