@@ -7,7 +7,11 @@
 
 %% set folder
 
+clc; clearvars;
 project_folder = cd;
+
+% Define a separate output directory
+output_dir = fullfile(project_folder, 'results', 'llm_subset');
 
 % code
 addpath(fullfile(project_folder,'source'));
@@ -26,7 +30,7 @@ level_colors(4,:) = [180,200,60]/255;
 % set(groot,'defaultAxesFontSize',12)
 
 % data
-results_folder = fullfile(project_folder,'results');
+results_folder = output_dir;
 load(fullfile(results_folder,'fits_CHASE_table.mat'),'data'); % in table format
 all_fits = data;
 
@@ -66,6 +70,9 @@ x2 = data.rating_per_opp(data.group ~= 1,:);
 
 %% 2b) model comparison
 
+% load the fits
+load(fullfile(results_folder,'model_comparison.mat'));
+
 fprintf('\n=== Checking fits structure ===\n');
 fprintf('Number of models: %d\n', numel(fits));
 for i = 1:numel(fits)
@@ -83,8 +90,6 @@ for i = 1:numel(fits)
     end
 end
 fprintf('=============================\n\n');
-            
-load(fullfile(results_folder,'model_comparison.mat'));
 
 subplot(3,9,4:6);
 [~,stats] = mn_compare(fits,'group','dataset','use_current_fig');
@@ -101,9 +106,9 @@ yticklabels({'Fict','EWA','RL','ToMk','EWA-S','CHASE'});
 
 pxp_dataset = arrayfun(@(dataset) dataset.rand.AIC.pxp(1),stats)
 
-% per opponent type
-[~,stats] = mn_compare(fits,'group','opp_type','flag_plot',0);
-pxp_opp_type = arrayfun(@(dataset) dataset.rand.AIC.pxp(1),stats)
+% per opponent type (not applicable for LLM data)
+% [~,stats] = mn_compare(fits,'group','opp_type','flag_plot',0);
+% pxp_opp_type = arrayfun(@(dataset) dataset.rand.AIC.pxp(1),stats)
 
 %% 2c) model recovery
 
@@ -136,7 +141,7 @@ BAKR_2024_posterior_predictive_check(project_folder,'main',{3,9,10:15});
 
 %% 2e) performance per opponent type (model-free)
 
-fit = all_fits(contains(all_fits.dataset,{'2d','2e'}),:);
+fit = all_fits(contains(all_fits.dataset,{'HUMAN','DEEPSEEK','GPT'}),:);
 subjects = unique(fit.subjID);
 
 % compute scores against different opponent types
@@ -508,7 +513,7 @@ BAKR_2024_posterior_predictive_check(project_folder,'all')
 
 %% parameter estimates
 
-fit = all_fits(contains(all_fits.dataset,{'2d','2e'}),:);
+fit = all_fits(contains(all_fits.dataset,{'HUMAN','DEEPSEEK','GPT'}),:);
 
 params = {'alpha','beta','lambda','gamma','kappa'};
 labels = {'\alpha','\beta','\lambda','\gamma','\kappa'};
