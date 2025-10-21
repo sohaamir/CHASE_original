@@ -16,6 +16,7 @@ output_dir = fullfile(project_folder, 'results', 'llm_subset');
 % code
 addpath(fullfile(project_folder,'source'));
 addpath(fullfile(project_folder,'source','MERLIN_toolbox'));
+addpath(fullfile(project_folder,'VBA-toolbox'));
 
 %% preparation
 
