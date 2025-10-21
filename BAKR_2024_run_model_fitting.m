@@ -9,6 +9,7 @@
 project_folder = cd;
 addpath(fullfile(project_folder,'source'));
 addpath(fullfile(project_folder,'source','MERLIN_toolbox'));
+addpath(fullfile(project_folder,'VBA-toolbox'));
 
 % Define a separate output directory
 output_dir = fullfile(project_folder, 'results', 'llm_subset');
@@ -58,48 +59,18 @@ end
 fprintf('\nPreprocessing complete!\n');
 fprintf('========================================\n\n');
 
-%% Convert to struct (block structure will be auto-inferred)
-fprintf('Converting to struct format...\n');
+%% Convert to struct (MATCHING ORIGINAL BAKR - NO block_var!)
+fprintf('Converting to struct format (continuous session, matching original BAKR)...\n');
 
-% First, check each subject's block structure
-subjects = unique(data.subjID);
-for i = 1:numel(subjects)
-    idx = (data.subjID == subjects(i));
-    n_unique_blocks = numel(unique(data.block(idx)));
-    has_multiple_blocks(i) = (n_unique_blocks > 1);
-end
-
-% Separate single-block and multi-block subjects
-idx_single = ismember(data.subjID, subjects(~has_multiple_blocks));
-idx_multi = ismember(data.subjID, subjects(has_multiple_blocks));
-
-% Convert single-block subjects WITHOUT block_var
-if any(idx_single)
-    data_single = mn_table2struct(data(idx_single,:), 'subjID', 'remove_redundancy', ...
-                                  'exceptions', {'choice_own','choice_other','missing'});
-end
-
-% Convert multi-block subjects WITH block_var
-if any(idx_multi)
-    data_multi = mn_table2struct(data(idx_multi,:), 'subjID', 'remove_redundancy', ...
-                                 'exceptions', {'choice_own','choice_other','missing'}, ...
-                                 'block_var', 'block');
-end
-
-% Combine both
-if any(idx_single) && any(idx_multi)
-    data = [data_single; data_multi];
-elseif any(idx_single)
-    data = data_single;
-else
-    data = data_multi;
-end
+% Convert WITHOUT block_var - treats all 120 trials as continuous
+data = mn_table2struct(data, 'subjID', 'remove_redundancy', ...
+                      'exceptions', {'choice_own','choice_other','missing'});
 
 %% Verify conversion
 fprintf('\nVerifying struct conversion:\n');
 for i = 1:numel(data)
-    fprintf('  Subject %d: n_blocks=%d, n_trials=%s, choice_own size=%s\n', ...
-        data(i).subjID, data(i).n_blocks, mat2str(data(i).n_trials), ...
+    fprintf('  Subject %d: n_blocks=%d, n_trials=%d, choice_own size=%s\n', ...
+        data(i).subjID, data(i).n_blocks, data(i).n_trials, ...
         mat2str(size(data(i).choice_own)));
 end
 
@@ -171,9 +142,9 @@ if ismember('n_trials', data.Properties.VariableNames)
 end
 data.n_blocks(:) = 1;
 
+% Convert WITHOUT block_var (matching main analysis)
 data = mn_table2struct(data,'subjID','remove_redundancy',...
-                      'exceptions',{'choice_own','choice_other','missing'},...
-                      'block_var','block');
+                      'exceptions',{'choice_own','choice_other','missing'});
 
 fits_LR(1) = fits(1); % RW-freq already fitted above
 
@@ -200,7 +171,7 @@ end
 %% model recovery: learning rule
 try
     fprintf('Running model recovery for learning rules...\n');
-    sims = BAKR_2024_simulate_data_LLM(fits_LR, idx_fmri);  % Added _LLM
+    sims = BAKR_2024_simulate_data(fits_LR, idx_fmri);
     
     models = {fits_LR.model};
     sim_fits = mn_fit(sims', models);
@@ -214,7 +185,7 @@ end
 %% model recovery: full model
 try
     fprintf('Running model recovery for full model...\n');
-    sims = BAKR_2024_simulate_data_LLM(fits, idx_fmri);  % Added _LLM
+    sims = BAKR_2024_simulate_data(fits, idx_fmri);
     
     models = {fits.model};
     sim_fits = mn_fit(sims', models);
@@ -231,7 +202,7 @@ try
     
     [sims,params] = deal([]);
     for k = 0:3
-        [new_sims,new_params] = BAKR_2024_simulate_data_LLM(fits(1), idx_fmri, k);  % Added _LLM
+        [new_sims,new_params] = BAKR_2024_simulate_data(fits(1), idx_fmri, k);
         params = [params; new_params];
         sims = [sims new_sims];
     end
@@ -240,6 +211,7 @@ try
     model = fits(1).model;
     fits_est = mn_fit(sims', model);
     estimates = arrayfun(@(sim) struct2array(sim.params)', fits_est.subj);
+    
     prec.model = model;
     prec.params.est = [estimates{:}]';
     prec.params.gen = params;
@@ -248,6 +220,9 @@ try
     fprintf('✓ Parameter recovery complete\n\n');
 catch e
     warning('Parameter recovery failed: %s', e.message);
+    if ~isempty(e.stack)
+        fprintf('  Stack: %s (line %d)\n', e.stack(1).name, e.stack(1).line);
+    end
 end
 
 %% effect of lowering the upper bound on gamma
@@ -261,8 +236,7 @@ try
     end
     data.n_blocks(:) = 1;
     data = mn_table2struct(data,'subjID','remove_redundancy',...
-                          'exceptions',{'choice_own','choice_other','missing'},...
-                          'block_var','block');
+                          'exceptions',{'choice_own','choice_other','missing'});
     
     model = BAKR_2024_CHASE_config('CH','fitted',3,'RW-freq');
     gamma = arrayfun(@(subj) subj.params.gamma, fits(1).subj(idx_fmri));
