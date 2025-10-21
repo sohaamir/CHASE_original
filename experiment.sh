@@ -5,7 +5,7 @@
 #SBATCH --job-name=burgi_matlab_analysis
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=32
-#SBATCH --mem=8G
+#SBATCH --mem=64G
 #SBATCH --time=04:00:00
 #SBATCH --output=burgi_matlab_analysis_%j.out
 #SBATCH --error=burgi_matlab_analysis_%j.err
@@ -50,34 +50,34 @@ echo "==========================================================================
 
 # Count files before cleanup in main directory
 OLD_COUNT=$(find . -maxdepth 1 -type f \( \
-    -name "matlab_analysis_*" \
+    -name "burgi_matlab_analysis_*" \
     \) ! -name "*${SLURM_JOB_ID}*" 2>/dev/null | wc -l)
 
-echo "Found ${OLD_COUNT} old matlab_analysis_* files in main directory"
+echo "Found ${OLD_COUNT} old burgi_matlab_analysis_* files in main directory"
 
-# Remove ALL old matlab_analysis files (including .out, .err, .log extensions)
-echo "Removing ALL old matlab_analysis_* files from main directory..."
-find . -maxdepth 1 -type f -name "matlab_analysis_*" ! -name "*${SLURM_JOB_ID}*" -delete 2>/dev/null || true
+# Remove ALL old burgi_matlab_analysis files (including .out, .err, .log extensions)
+echo "Removing ALL old burgi_matlab_analysis_* files from main directory..."
+find . -maxdepth 1 -type f -name "burgi_matlab_analysis_*" ! -name "*${SLURM_JOB_ID}*" -delete 2>/dev/null || true
 
 # Verify cleanup
-REMAINING_COUNT=$(find . -maxdepth 1 -type f -name "matlab_analysis_*" ! -name "*${SLURM_JOB_ID}*" 2>/dev/null | wc -l)
+REMAINING_COUNT=$(find . -maxdepth 1 -type f -name "burgi_matlab_analysis_*" ! -name "*${SLURM_JOB_ID}*" 2>/dev/null | wc -l)
 echo "  Removed: $((OLD_COUNT - REMAINING_COUNT)) files"
 echo "  Remaining (should be 0): ${REMAINING_COUNT}"
 
-# Remove old log files and matlab_analysis files from logs directory
+# Remove old log files and burgi_matlab_analysis files from logs directory
 if [[ -d "${LOG_DIR}" ]]; then
     echo ""
     echo "Cleaning old files from ${LOG_DIR}..."
     
     # Count files before cleanup
-    OLD_LOG_COUNT=$(find "${LOG_DIR}" -type f \( -name "*.log" -o -name "matlab_analysis_*" \) 2>/dev/null | wc -l)
+    OLD_LOG_COUNT=$(find "${LOG_DIR}" -type f \( -name "*.log" -o -name "burgi_matlab_analysis_*" \) 2>/dev/null | wc -l)
     echo "  Found ${OLD_LOG_COUNT} files before cleanup"
     
-    # Remove old log files AND matlab_analysis files from logs directory
-    find "${LOG_DIR}" -type f \( -name "*.log" -o -name "matlab_analysis_*" \) ! -name "*${SLURM_JOB_ID}*" -delete 2>/dev/null || true
+    # Remove old log files AND burgi_matlab_analysis files from logs directory
+    find "${LOG_DIR}" -type f \( -name "*.log" -o -name "burgi_matlab_analysis_*" \) ! -name "*${SLURM_JOB_ID}*" -delete 2>/dev/null || true
     
     # Count remaining
-    NEW_LOG_COUNT=$(find "${LOG_DIR}" -type f \( -name "*.log" -o -name "matlab_analysis_*" \) 2>/dev/null | wc -l)
+    NEW_LOG_COUNT=$(find "${LOG_DIR}" -type f \( -name "*.log" -o -name "burgi_matlab_analysis_*" \) 2>/dev/null | wc -l)
     echo "  Removed: $((OLD_LOG_COUNT - NEW_LOG_COUNT)) files"
     echo "  Remaining: ${NEW_LOG_COUNT}"
 fi
@@ -180,7 +180,7 @@ cleanup() {
     
     # Clean up java logs created during this run
     find . -maxdepth 1 -type f -name "java.log.*" -delete 2>/dev/null || true
-    find /rds/homes/a/axs2210 -maxdepth 1 -type f -name "java.log.*" -newer matlab_analysis_${SLURM_JOB_ID}.out -delete 2>/dev/null || true
+    find /rds/homes/a/axs2210 -maxdepth 1 -type f -name "java.log.*" -newer burgi_matlab_analysis_${SLURM_JOB_ID}.out -delete 2>/dev/null || true
     
     # Calculate duration
     END_TIME=$(date +%s)
@@ -249,7 +249,7 @@ matlab -nodisplay -nosplash -nodesktop -r \
         fprintf('Message: %s\n', ME.message); \
         fprintf('Location: %s (line %d)\n', ME.stack(1).name, ME.stack(1).line); \
         exit(1); \
-    end" 2>&1 | stdbuf -o0 tee -a matlab_analysis_${SLURM_JOB_ID}.log
+    end" 2>&1 | stdbuf -o0 tee -a burgi_matlab_analysis_${SLURM_JOB_ID}.log
 
 FITTING_EXIT_CODE=${PIPESTATUS[0]}
 FITTING_END=$(date +%s)
@@ -260,14 +260,14 @@ echo "==========================================================================
 echo "Model Fitting Results:"
 echo "  Exit code: ${FITTING_EXIT_CODE}"
 echo "  Duration: $((FITTING_DURATION / 60)) minutes"
-echo "  Log: matlab_analysis_${SLURM_JOB_ID}.log"
+echo "  Log: burgi_matlab_analysis_${SLURM_JOB_ID}.log"
 
 if [[ $FITTING_EXIT_CODE -ne 0 ]]; then
     echo "  Status: ❌ FAILED"
     echo "=================================================================================="
     echo ""
     echo "Model fitting failed. Check log for details:"
-    echo "  matlab_analysis_${SLURM_JOB_ID}.log"
+    echo "  burgi_matlab_analysis_${SLURM_JOB_ID}.log"
     exit $FITTING_EXIT_CODE
 fi
 
@@ -326,7 +326,7 @@ matlab -nodisplay -nosplash -nodesktop -r \
         fprintf('Message: %s\n', ME.message); \
         fprintf('Location: %s (line %d)\n', ME.stack(1).name, ME.stack(1).line); \
         exit(1); \
-    end" 2>&1 | stdbuf -o0 tee -a matlab_analysis_${SLURM_JOB_ID}.log
+    end" 2>&1 | stdbuf -o0 tee -a burgi_matlab_analysis_${SLURM_JOB_ID}.log
 
 PLOTTING_EXIT_CODE=${PIPESTATUS[0]}
 PLOTTING_END=$(date +%s)
@@ -337,14 +337,14 @@ echo "==========================================================================
 echo "Results & Figures:"
 echo "  Exit code: ${PLOTTING_EXIT_CODE}"
 echo "  Duration: $((PLOTTING_DURATION / 60)) minutes"
-echo "  Log: matlab_analysis_${SLURM_JOB_ID}.log"
+echo "  Log: burgi_matlab_analysis_${SLURM_JOB_ID}.log"
 
 if [[ $PLOTTING_EXIT_CODE -ne 0 ]]; then
     echo "  Status: ❌ FAILED"
     echo "=================================================================================="
     echo ""
     echo "Results/figures generation failed. Check log for details:"
-    echo "  matlab_analysis_${SLURM_JOB_ID}.log"
+    echo "  burgi_matlab_analysis_${SLURM_JOB_ID}.log"
     exit $PLOTTING_EXIT_CODE
 fi
 
@@ -390,9 +390,9 @@ if [[ -d "${PLOTS_DIR}" ]]; then
 fi
 
 echo "Logs saved to:"
-echo "  - matlab_analysis_${SLURM_JOB_ID}.log (master log)"
-echo "  - matlab_analysis_${SLURM_JOB_ID}.out (SLURM output)"
-echo "  - matlab_analysis_${SLURM_JOB_ID}.err (SLURM errors)"
+echo "  - burgi_matlab_analysis_${SLURM_JOB_ID}.log (master log)"
+echo "  - burgi_matlab_analysis_${SLURM_JOB_ID}.out (SLURM output)"
+echo "  - burgi_matlab_analysis_${SLURM_JOB_ID}.err (SLURM errors)"
 echo "  - ${LOG_DIR}/memory_usage_${SLURM_JOB_ID}.log (memory monitoring)"
 echo ""
 echo "Job completed: $(date)"
