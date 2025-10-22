@@ -17,28 +17,38 @@ if nargin > 2 && ~isempty(params)
     
     % check number of parameters
     error_msg = 'Wrong number of parameters provided (%i/%i).';
+    
     if isa(params,'double')
-        assert(numel(params) == numel(model.params),error_msg,numel(params),numel(model.params));
-        [~,subj.states,subj.data] = model.sim_fxn(task,model,params,'sim');
+        % Check parameter count
+        assert(numel(params) == numel(model.params), error_msg, numel(params), numel(model.params));
+        
+        % Ensure params is a COLUMN vector for model call
+        params = params(:);  % Force to column (5×1)
+        
+        % Call model with column vector (model expects this)
+        [~,subj.states,subj.data] = model.sim_fxn(task, model, params, 'sim');
+        
     elseif isa(params,'cell') % for interactive simulations
+        % Check parameter count for each agent
         for ii = 1:numel(params)
-            assert(numel(params{ii}) == numel(model{ii}.params),error_msg,numel(params{ii}),numel(model{ii}.params));
+            assert(numel(params{ii}) == numel(model{ii}.params), error_msg, numel(params{ii}), numel(model{ii}.params));
         end
-
+        
+        % Setup for multi-agent simulation
         agents = model;
         params_per_agent = params;
         model = model{1};
         params = params{1};
-        [~,subj.states,subj.data] = model.sim_fxn(task,agents,params_per_agent,'sim');
-
+        
+        % Ensure params is a COLUMN vector
+        params = params(:);
+        
+        % Call model for interactive simulation
+        [~,subj.states,subj.data] = model.sim_fxn(task, agents, params_per_agent, 'sim');
     end
-    % [~,subj.states,subj.data] = model.sim_fxn(task,model,params,'sim');
     
-    % Ensure params is a column vector before transposing
-    if size(params, 1) == 1
-        params = params';  % Convert row to column
-    end
-    subj.params = array2table(params,'VariableNames',{model.params.name});
+    % Create table from ROW vector (array2table expects this)
+    subj.params = array2table(params', 'VariableNames', {model.params.name});
     
     sim.type   = 'sim';
     sim.task   = task;
