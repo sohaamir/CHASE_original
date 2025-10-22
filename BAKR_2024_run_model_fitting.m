@@ -9,10 +9,35 @@
 project_folder = cd;
 addpath(fullfile(project_folder,'source'));
 addpath(fullfile(project_folder,'source','MERLIN_toolbox'));
-addpath(fullfile(project_folder,'VBA-toolbox'));
+addpath(genpath(fullfile(project_folder, 'VBA-toolbox')));
 
 % Define a separate output directory
 output_dir = fullfile(project_folder, 'results', 'llm_subset');
+
+% Empty the output directory if it exists
+if exist(output_dir, 'dir')
+    fprintf('Emptying output directory: %s\n', output_dir);
+    
+    % Get all contents of the directory
+    contents = dir(output_dir);
+    
+    % Delete all files and subdirectories
+    for i = 1:length(contents)
+        if ~strcmp(contents(i).name, '.') && ~strcmp(contents(i).name, '..')
+            item_path = fullfile(output_dir, contents(i).name);
+            if contents(i).isdir
+                % Delete directory and all its contents
+                delete(item_path, 's');
+            else
+                % Delete file
+                delete(item_path);
+            end
+        end
+    end
+else
+    fprintf('Output directory does not exist, creating it...\n');
+    mkdir(output_dir);
+end
 
 % Create output directories if they don't exist
 if ~exist(output_dir, 'dir')
@@ -28,7 +53,7 @@ end
 
 %% model fitting
 % get data
-load(fullfile(project_folder,'data','llm_data_1.mat'));
+load(fullfile(project_folder,'data','llm_data_5.mat'));
 
 fprintf('========================================\n');
 fprintf('PREPROCESSING LLM DATA\n');
@@ -210,7 +235,8 @@ try
     % fit
     model = fits(1).model;
     fits_est = mn_fit(sims', model);
-    estimates = arrayfun(@(sim) struct2array(sim.params)', fits_est.subj);
+    estimates = arrayfun(@(sim) cell2mat(struct2cell(sim.params))',fits_est.subj,'UniformOutput',false);
+    estimates = [estimates{:}]';
     
     prec.model = model;
     prec.params.est = [estimates{:}]';
