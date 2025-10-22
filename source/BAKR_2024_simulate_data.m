@@ -25,30 +25,77 @@ function [sims, params] = BAKR_2024_simulate_data(fits, idx, k)
             % Extract subject-specific info
             subj_data = fits(1).subj(idx(i_subj)).data;
             
+            % === DETAILED DIAGNOSTICS ===
+            if i_model == 2 && i_subj == 4
+                fprintf('\n=== DETAILED DEBUG: Model %d, Subj %d ===\n', i_model, i_subj);
+                fprintf('subj_data fields: %s\n', strjoin(fieldnames(subj_data), ', '));
+                fprintf('subj_data.subjID: %d\n', subj_data.subjID);
+                
+                if isfield(subj_data, 'bot_level')
+                    fprintf('bot_level exists: YES\n');
+                    fprintf('  Type: %s\n', class(subj_data.bot_level));
+                    fprintf('  Size: %s\n', mat2str(size(subj_data.bot_level)));
+                    fprintf('  Length: %d\n', length(subj_data.bot_level));
+                    fprintf('  First 10 values: %s\n', mat2str(subj_data.bot_level(1:min(10,end))));
+                    if length(subj_data.bot_level) <= 20
+                        fprintf('  ALL values: %s\n', mat2str(subj_data.bot_level));
+                    end
+                else
+                    fprintf('bot_level exists: NO\n');
+                end
+                
+                if isfield(subj_data, 'n_trials')
+                    fprintf('n_trials: %d\n', subj_data.n_trials);
+                end
+                if isfield(subj_data, 'n_blocks')
+                    fprintf('n_blocks: %d\n', subj_data.n_blocks);
+                end
+                
+                fprintf('=== END DEBUG ===\n\n');
+            end
+            
             % === FIX: Safely extract bot levels ===
-            % Problem: Original code used bot_level(1:40:end) which can
-            % exceed array bounds when end/40 is not a whole number
             bot_level_full = subj_data.bot_level;
             n_trials_total = length(bot_level_full);
-            n_blocks_actual = floor(n_trials_total / 40);
             
-            % Sample one bot level per block (every 40 trials)
-            % Ensure we don't exceed array bounds
-            safe_indices = 1:40:(40 * n_blocks_actual);
+            fprintf('[Model %d, Subj %d] bot_level length: %d\n', i_model, i_subj, n_trials_total);
             
-            % Validate we're not accessing beyond array
-            assert(max(safe_indices) <= n_trials_total, ...
-                'Index exceeds bot_level array length');
+            % Check if bot_level is already in compact format
+            if n_trials_total <= 10
+                fprintf('[Model %d, Subj %d] Using compact format\n', i_model, i_subj);
+                task.bot.levels = bot_level_full;
+                n_blocks_actual = length(bot_level_full);
+            else
+                fprintf('[Model %d, Subj %d] Using long format, extracting indices\n', i_model, i_subj);
+                n_blocks_actual = floor(n_trials_total / 40);
+                safe_indices = 1:40:(40 * n_blocks_actual);
+                
+                fprintf('[Model %d, Subj %d] n_blocks_actual: %d, safe_indices: %s\n', ...
+                    i_model, i_subj, n_blocks_actual, mat2str(safe_indices));
+                
+                % THIS IS LINE 51 - where the error occurs
+                assert(max(safe_indices) <= n_trials_total, ...
+                    'Index exceeds bot_level array length: max_index=%d, array_length=%d', ...
+                    max(safe_indices), n_trials_total);
+                
+                task.bot.levels = bot_level_full(safe_indices);
+            end
             
-            task.bot.levels = bot_level_full(safe_indices);
+            fprintf('[Model %d, Subj %d] Final task.bot.levels: %s\n', ...
+                i_model, i_subj, mat2str(task.bot.levels));
             % ======================================
             
             % Update task structure to match actual data
             task.n_trials = 40;  % trials per block
             task.n_blocks = n_blocks_actual;
             
-            % Extract parameters
-            curr_params = cell2mat(struct2cell(fits(i_model).subj(idx(i_subj)).params))';
+            % Extract parameters in the CORRECT order matching model definition
+            param_struct = fits(i_model).subj(idx(i_subj)).params;
+            curr_params = zeros(1, length(curr_model.params));
+            for p = 1:length(curr_model.params)
+                param_name = curr_model.params(p).name;
+                curr_params(p) = param_struct.(param_name);
+            end
             
             % Allow for overriding of level parameter (for parameter recovery)
             if nargin > 2
@@ -58,6 +105,13 @@ function [sims, params] = BAKR_2024_simulate_data(fits, idx, k)
             else
                 subjID = i_model * 100 + i_subj;
             end
+
+            % Add after line 36
+            fprintf('DEBUG Model %d, Subj %d:\n', i_model, i_subj);
+            fprintf('  Param fields: %s\n', strjoin(fieldnames(fits(i_model).subj(idx(i_subj)).params), ', '));
+            fprintf('  Model expects: %s\n', strjoin({curr_model.params.name}, ', '));
+            fprintf('  Extracted params length: %d\n', length(curr_params));
+            fprintf('  Model params length: %d\n', length(curr_model.params));
             
             % Simulate
             sim = mn_sim(task, curr_model, curr_params);
