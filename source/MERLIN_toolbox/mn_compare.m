@@ -327,12 +327,18 @@ if (numel(groups) > 1 || any(strcmp(varargin,'group'))) && flag_plot
 %         figure
         b = barh(pxp(idx_sort,:));
 
-        transparency = [0.6 0.6 0.6];
+        n_groups = numel(groups);
+        transparency = repmat(0.6, 1, max(n_groups, 6));
         for i_b = 1:numel(b)
             if contains(dataset_labels(i_b),'1'), c = 1;
             elseif contains(dataset_labels(i_b),{'2a','2b'}), c = 2;
             elseif contains(dataset_labels(i_b),{'2c','2d','2e','2f'}), c = 3;
-            else, c = i_b;
+            else
+                c = mod(i_b - 1, size(colors, 1)) + 1;  % Cycle through available colors
+            end
+            % Expand transparency if needed
+            if c > length(transparency)
+                transparency = [transparency, repmat(0.6, 1, c - length(transparency))];
             end
             b(i_b).FaceColor = colors(c,:);
             b(i_b).FaceAlpha = transparency(c)-0.1;
