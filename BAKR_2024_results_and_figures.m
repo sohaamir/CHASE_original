@@ -16,7 +16,7 @@ output_dir = fullfile(project_folder, 'results', 'llm_subset');
 % code
 addpath(fullfile(project_folder,'source'));
 addpath(fullfile(project_folder,'source','MERLIN_toolbox'));
-addpath(fullfile(project_folder,'VBA-toolbox'));
+addpath(genpath(fullfile(project_folder, 'VBA-toolbox')));
 
 %% preparation
 
@@ -41,33 +41,6 @@ all_fits = data;
 
 figure('Name','Behavioral and model-based evidence for adaptive mentalization.',...
        'Units','normalized','Position',[0.2,0.2,0.6,0.6]);
-
-%% 2a) perception of opponents
-
-load(fullfile(project_folder,'data','ratings.mat'));
-
-w = 0.2;
-new_c = colors;
-new_c(2,:) = w*colors(2,:) + (1-w)*colors(3,:);
-new_c(3,:) = w*colors(2,:) + (1-w)*colors(3,:);
-
-subplot(3,9,1:3); hold on;
-for i_group = 1:3
-    curr_data = data.rating_per_opp(data.group == i_group,:);
-    mn_sinaplot(curr_data(:),0.5:0.1:5.5,i_group,new_c(i_group,:),15,1.25,[],[],0.25);
-end
-xlim([0.25,3.75]); ylim([0.5,5.5]);
-xticks(1:3); yticks(1:5);
-xticklabels({"Human","Bot v1","Bot v2"});
-yticklabels({"","","","",""});
-title('Perception of opponents');
-xlabel('Opponent type');
-
-[~,p,ksstat] = kstest2(data.rating_overall(data.group == 1),data.rating_overall(data.group ~= 1))
-
-x1 = data.rating_per_opp(data.group == 1,:);
-x2 = data.rating_per_opp(data.group ~= 1,:);
-[~,p,ksstat] = kstest2(x1(:),x2(:))
 
 %% 2b) model comparison
 
@@ -103,7 +76,7 @@ set(legend,'FontSize',8,'Position',[0.25,0.65,0.1,0.1]);
 
 yticklabels({'Fict','EWA','RL','ToMk','EWA-S','CHASE'});
 
-% exportgraphics(gca,'model_comparison.png','Resolution',300);
+exportgraphics(gca,'model_comparison.png','Resolution',300);
 
 pxp_dataset = arrayfun(@(dataset) dataset.rand.AIC.pxp(1),stats)
 
@@ -268,7 +241,8 @@ kl_div = [];
 ii = 1;
 for subj = unique(fit.subjID)'
     fit_z.subj_KL_div(fit.subjID == subj & ~fit.missing) = zscore(fit.subj_KL_div(fit.subjID == subj & ~fit.missing));
-    for block = 1:6
+    n_blocks_per_subj = numel(unique(fit.block));
+    for block = 1:n_blocks_per_subj
         kl_div(ii,:) = fit_z.subj_KL_div(fit_z.subjID == subj & fit_z.block == block);
         ii = ii + 1;
     end
@@ -297,29 +271,6 @@ data.kl_div = kl_div_T(:);
 data.trial = repmat([1:40]',n_subj*n_blocks,1);
 data.subj = repelem([1:n_subj]',n_blocks*n_trials,1);
 lme = fitlme(data,'kl_div ~ 1 + trial + (trial | subj)')
-tbl = anova(lme,'DFMethod','satterthwaite')
-
-% level and RTs
-data = all_fits;
-data.logRT = log(data.RT);
-
-% compute level point estimate
-data.subj_level(data.kappa == 3) = data.beliefs(data.kappa == 3,:) * [0 1 2]';
-data.subj_level(data.kappa == 2) = data.beliefs(data.kappa == 2,1:2) * [0 1]';
-
-data_z = data;
-vars = {'subj_level','bot_level','logRT'};
-for i_var = 1:numel(vars)
-    idx = ~isnan(data.(vars{i_var}));
-    data_z.(vars{i_var})(idx) = zscore(data_z.(vars{i_var})(idx));
-end
-
-idx = contains(data_z.dataset,'2a');
-lme = fitlme(data_z(idx,:),'logRT ~ 1 + bot_level + subj_level + (1 + bot_level + subj_level | subjID)')
-tbl = anova(lme,'DFMethod','satterthwaite')
-
-idx = contains(data_z.dataset,'2e');
-lme = fitlme(data_z(idx,:),'logRT ~ 1 + bot_level + subj_level + (1 + bot_level + subj_level | subjID)')
 tbl = anova(lme,'DFMethod','satterthwaite')
 
 %% -------------------------------------------------------------------------- %
