@@ -159,7 +159,7 @@ fprintf('Using %d subjects for supplementary analyses\n\n', numel(idx_fmri));
 
 %% determining the learning rule
 % get data (reload from original)
-load(fullfile(project_folder,'data','llm_data_1.mat'));
+data_for_LR = data;  % data is already in memory from main fitting
 
 % Apply same preprocessing
 if ismember('n_trials', data.Properties.VariableNames)
