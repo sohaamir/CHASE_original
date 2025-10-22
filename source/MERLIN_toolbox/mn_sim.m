@@ -34,7 +34,11 @@ if nargin > 2 && ~isempty(params)
     end
     % [~,subj.states,subj.data] = model.sim_fxn(task,model,params,'sim');
     
-    subj.params = array2table(params','VariableNames',{model.params.name});
+    % Ensure params is a column vector before transposing
+    if size(params, 1) == 1
+        params = params';  % Convert row to column
+    end
+    subj.params = array2table(params,'VariableNames',{model.params.name});
     
     sim.type   = 'sim';
     sim.task   = task;
