@@ -27,7 +27,7 @@ if exist(output_dir, 'dir')
             item_path = fullfile(output_dir, contents(i).name);
             if contents(i).isdir
                 % Delete directory and all its contents
-                delete(item_path, 's');
+                rmdir(item_path, 's');
             else
                 % Delete file
                 delete(item_path);
@@ -196,7 +196,31 @@ end
 %% model recovery: learning rule
 try
     fprintf('Running model recovery for learning rules...\n');
+    
+    % === DIAGNOSTIC: Check fits_LR structure ===
+    fprintf('\n=== FITS_LR DIAGNOSTIC ===\n');
+    fprintf('Number of models in fits_LR: %d\n', numel(fits_LR));
+    for m = 1:numel(fits_LR)
+        fprintf('Model %d: %s\n', m, fits_LR(m).model.name);
+        fprintf('  Number of subjects: %d\n', numel(fits_LR(m).subj));
+        if m == 2 && numel(fits_LR(m).subj) >= 4
+            fprintf('  Subject 4 fields: %s\n', strjoin(fieldnames(fits_LR(m).subj(4).data), ', '));
+            if isfield(fits_LR(m).subj(4).data, 'bot_level')
+                fprintf('  Subject 4 bot_level size: %s\n', mat2str(size(fits_LR(m).subj(4).data.bot_level)));
+            end
+        end
+    end
+    fprintf('idx_fmri subjects: %s\n', mat2str(idx_fmri'));
+    fprintf('=== END DIAGNOSTIC ===\n\n');
+    
     sims = BAKR_2024_simulate_data(fits_LR, idx_fmri);
+
+    % ADD THIS DIAGNOSTIC:
+    fprintf('Checking simulated data structure:\n');
+    fprintf('  sims(1) type: %s\n', class(sims));
+    fprintf('  sims(1) fields: %s\n', strjoin(fieldnames(sims(1)), ', '));
+    fprintf('  sims(1).n_trials: %d\n', sims(1).n_trials);
+    fprintf('  sims(1).n_blocks: %d\n', sims(1).n_blocks);
     
     models = {fits_LR.model};
     sim_fits = mn_fit(sims', models);
@@ -205,6 +229,12 @@ try
     fprintf('✓ Learning rule model recovery complete\n\n');
 catch e
     warning('Model recovery (LR) failed: %s', e.message);
+    fprintf('Full error details:\n');
+    % BETTER WAY TO DISPLAY STACK:
+    for i = 1:length(e.stack)
+        fprintf('  [%d] %s (line %d)\n', i, e.stack(i).name, e.stack(i).line);
+    end
+    fprintf('Identifier: %s\n', e.identifier);
 end
 
 %% model recovery: full model
@@ -235,11 +265,17 @@ try
     % fit
     model = fits(1).model;
     fits_est = mn_fit(sims', model);
-    estimates = arrayfun(@(sim) cell2mat(struct2cell(sim.params))',fits_est.subj,'UniformOutput',false);
-    estimates = [estimates{:}]';
+
+    estimates = zeros(numel(fits_est.subj), numel(model.params));
+    for i = 1:numel(fits_est.subj)
+        param_struct = fits_est.subj(i).params;
+        for p = 1:numel(model.params)
+            estimates(i, p) = param_struct.(model.params(p).name);
+        end
+    end
     
     prec.model = model;
-    prec.params.est = [estimates{:}]';
+    prec.params.est = estimates;
     prec.params.gen = params;
     save(fullfile(output_dir,'supplementary','parameter_recovery.mat'),'sims','prec');
     
@@ -256,7 +292,7 @@ try
     fprintf('Testing effect of gamma bounds...\n');
     
     % Reload and preprocess data
-    load(fullfile(project_folder,'data','llm_data_1.mat'));
+    load(fullfile(project_folder,'data','llm_data_5.mat'));
     if ismember('n_trials', data.Properties.VariableNames)
         data.n_trials = [];
     end
