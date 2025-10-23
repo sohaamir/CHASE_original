@@ -312,24 +312,88 @@ end
 %                          Supplementary analyses
 % -------------------------------------------------------------------------- %%
 
-%% level distribution in human-human gameplay
+%% level distribution across LLM and human data
 
-load(fullfile(project_folder,'results','supplementary','fits_LK_perblock.mat'),'fits_LK_perblock');
-ks = arrayfun(@(subj) [subj.params.kappa],fits_LK_perblock.subj,'UniformOutput',0);
+fprintf('  → Level distribution analysis\n');
 
-datasets = arrayfun(@(subj) subj.data.dataset,fits_LK_perblock.subj);
-idx_RPS3 = contains(datasets,'Human, RPS-3');
-idx_RPS4 = contains(datasets,'Human, RPS-4');
+% Extract kappa values from fitted CHASE model
+subjects = unique(all_fits.subjID);
+kappa = NaN(numel(subjects), 1);
+dataset_labels = cell(numel(subjects), 1);
 
-figure;
-subplot(1,3,1);
-histogram([ks{idx_RPS3 | idx_RPS4}],'Normalization','probability');ylim([0,0.4]); title('All human data'); ylabel('Frequency'); xlabel('Levels');
-subplot(1,3,2);
-histogram([ks{idx_RPS4}],'Normalization','probability'); ylim([0,0.4]); title('Only RPS-4'); xlabel('Levels');
-subplot(1,3,3);
-histogram([ks{idx_RPS3}],'Normalization','probability'); ylim([0,0.4]); title('Only RPS-3'); xlabel('Levels');
+for i_subj = 1:numel(subjects)
+    idx = find(all_fits.subjID == subjects(i_subj), 1);
+    kappa(i_subj) = all_fits.kappa(idx);
+    dataset_labels{i_subj} = all_fits.dataset{idx};
+end
 
-% exportgraphics(gcf,'level_distribution_human_human.png');
+% Create dataset groupings
+idx_all = true(numel(kappa), 1);
+idx_deepseek = contains(dataset_labels, 'DEEPSEEK');
+idx_gpt = contains(dataset_labels, 'GPT');
+idx_human = contains(dataset_labels, 'HUMAN');
+
+% Verify counts
+fprintf('    All data: %d subjects\n', sum(idx_all));
+fprintf('    DeepSeek (all): %d subjects\n', sum(idx_deepseek));
+fprintf('    GPT: %d subjects\n', sum(idx_gpt));
+fprintf('    Human: %d subjects\n', sum(idx_human));
+
+% Create figure
+figure('Position', [100, 100, 1200, 400]);
+
+% Panel 1: All data
+subplot(1, 3, 1);
+histogram(kappa(idx_all), 'BinEdges', -0.5:3.5, 'Normalization', 'probability', ...
+          'FaceColor', [0.4, 0.6, 0.8], 'EdgeColor', 'k', 'LineWidth', 1);
+ylim([0, 0.5]);
+xlabel('Levels (κ)', 'FontSize', 12, 'FontWeight', 'bold');
+ylabel('Frequency', 'FontSize', 12, 'FontWeight', 'bold');
+title('All Data', 'FontSize', 14, 'FontWeight', 'bold');
+set(gca, 'FontSize', 11, 'LineWidth', 1.5);
+box off;
+
+% Panel 2: DeepSeek (combined NORMAL + SCOT)
+subplot(1, 3, 2);
+histogram(kappa(idx_deepseek), 'BinEdges', -0.5:3.5, 'Normalization', 'probability', ...
+          'FaceColor', [0.3, 0.7, 0.5], 'EdgeColor', 'k', 'LineWidth', 1);
+ylim([0, 0.5]);
+xlabel('Levels (κ)', 'FontSize', 12, 'FontWeight', 'bold');
+title('DeepSeek (All)', 'FontSize', 14, 'FontWeight', 'bold');
+set(gca, 'FontSize', 11, 'LineWidth', 1.5);
+box off;
+
+% Panel 3: GPT
+subplot(1, 3, 3);
+histogram(kappa(idx_gpt), 'BinEdges', -0.5:3.5, 'Normalization', 'probability', ...
+          'FaceColor', [0.8, 0.5, 0.3], 'EdgeColor', 'k', 'LineWidth', 1);
+ylim([0, 0.5]);
+xlabel('Levels (κ)', 'FontSize', 12, 'FontWeight', 'bold');
+title('GPT', 'FontSize', 14, 'FontWeight', 'bold');
+set(gca, 'FontSize', 11, 'LineWidth', 1.5);
+box off;
+
+% Overall title
+sgtitle('Level Distribution by Model Architecture', 'FontSize', 16, 'FontWeight', 'bold');
+
+% Save figure
+exportgraphics(gcf, fullfile(output_dir, 'level_distribution_by_architecture.png'), 'Resolution', 300);
+fprintf('    ✓ Saved: level_distribution_by_architecture.png\n');
+
+% Summary statistics
+fprintf('\n    Level distribution summary:\n');
+fprintf('      All: κ = %.2f ± %.2f (mean ± SD)\n', mean(kappa(idx_all)), std(kappa(idx_all)));
+fprintf('      DeepSeek: κ = %.2f ± %.2f\n', mean(kappa(idx_deepseek)), std(kappa(idx_deepseek)));
+fprintf('      GPT: κ = %.2f ± %.2f\n', mean(kappa(idx_gpt)), std(kappa(idx_gpt)));
+fprintf('      Human: κ = %.2f ± %.2f\n', mean(kappa(idx_human)), std(kappa(idx_human)));
+
+% Optional: Breakdown by DeepSeek variants
+idx_ds_normal = strcmp(dataset_labels, 'DEEPSEEK-NORMAL');
+idx_ds_scot = strcmp(dataset_labels, 'DEEPSEEK-SCOT');
+fprintf('      DeepSeek-Normal: κ = %.2f ± %.2f\n', mean(kappa(idx_ds_normal)), std(kappa(idx_ds_normal)));
+fprintf('      DeepSeek-SCOT: κ = %.2f ± %.2f\n', mean(kappa(idx_ds_scot)), std(kappa(idx_ds_scot)));
+
+fprintf('\n');
 
 %% LR recovery
 
@@ -339,40 +403,66 @@ BAKR_2024_model_recovery_plot(sim_fits,[1,2,4,3]);
 
 % exportgraphics(gcf,'model_recovery_LR.png','Resolution',300);
 
-%% LR comparisons
+%% LR comparisons - BY DATASET
 
-load(fullfile(project_folder,'results','supplementary','model_comparison_LR.mat'),'fits_LR');
-fits_LR(3:4) = [];
+fprintf('  → Learning rule model comparison by dataset\n');
 
-% per opponent type
-figure;
-subplot(1,2,1); 
-[~,stats_opp_type] = mn_compare(fits_LR,'group','opp_type','use_current_fig');
-title('Opponent type'); xlabel('PXP');
+load(fullfile(output_dir,'supplementary','model_comparison_LR.mat'),'fits_LR');
+fits_LR(3:4) = [];  % Remove unused models
 
-% adjust colors
-a = gca;
-a.Children = flipud(a.Children);
-f = gcf;
-f.Children(1).String = fliplr(f.Children(1).String);
-legend('Bot','Human');
-col =  0.5*colors(2,:) + 0.5*(colors(3,:));
-f.Children(2).Children(2).FaceColor = col;
-f.Children(2).Children(2).EdgeColor = col;
-f.Children(2).Children(2).EdgeAlpha = .8;
-f.Children(2).Children(2).FaceAlpha = .7;
-f.Children(2).Children(1).EdgeAlpha = .7;
-f.Children(2).Children(1).FaceAlpha = .6;
+% Model comparison BY DATASET
+figure('Position', [100, 100, 800, 500]);
 
-% per dataset
-subplot(1,2,2);
-[~,stats_datasets] = mn_compare(fits_LR,'group','dataset','use_current_fig');
-title('Individual datasets'); xlabel('PXP');
-f.Children(1).FontSize = 8;
+% Single panel: Individual datasets
+[~, stats_datasets] = mn_compare(fits_LR, 'group', 'dataset', 'use_current_fig');
+title('Learning Rule Comparison by Dataset', 'FontSize', 14, 'FontWeight', 'bold');
+xlabel('Protected Exceedance Probability (PXP)', 'FontSize', 13, 'FontWeight', 'bold');
+ylabel('Learning Rule', 'FontSize', 13, 'FontWeight', 'bold');
+set(gca, 'FontSize', 11, 'LineWidth', 1.5);
 
-% stats
-pxp_opp_type = arrayfun(@(dataset) dataset.rand.AIC.pxp(1),stats_opp_type)
-pxp_dataset = arrayfun(@(dataset) dataset.rand.AIC.pxp(1),stats_datasets)
+% Adjust legend
+legend_handle = findobj(gcf, 'Type', 'Legend');
+if ~isempty(legend_handle)
+    set(legend_handle, 'FontSize', 10, 'Location', 'best');
+end
+
+% Save figure
+exportgraphics(gcf, fullfile(output_dir, 'learning_rule_comparison_by_dataset.png'), 'Resolution', 300);
+fprintf('    ✓ Saved: learning_rule_comparison_by_dataset.png\n');
+
+% Extract PXP values and dataset names
+pxp_dataset = arrayfun(@(dataset) dataset.rand.AIC.pxp(1), stats_datasets);
+
+% FIXED: Extract dataset names from the fitted data
+datasets_raw = arrayfun(@(subj) subj.data.dataset, fits_LR(1).subj, 'UniformOutput', false);
+datasets = unique(vertcat(datasets_raw{:}));  % Flatten nested cells
+
+fprintf('\n    PXP values by dataset (for best learning rule):\n');
+for i = 1:numel(datasets)
+    fprintf('      %s: PXP = %.3f\n', datasets{i}, pxp_dataset(i));
+end
+
+% Additional statistics: Compare learning rules within each dataset
+fprintf('\n    Within-dataset learning rule preferences:\n');
+for i = 1:numel(stats_datasets)
+    pxp_all = stats_datasets(i).rand.AIC.pxp;
+    [~, best_idx] = max(pxp_all);
+    
+    % Get model names from fits_LR
+    model_names = arrayfun(@(f) f.model.name, fits_LR, 'UniformOutput', false);
+    
+    fprintf('      %s:\n', datasets{i});
+    fprintf('        Best: %s (PXP = %.3f)\n', model_names{best_idx}, pxp_all(best_idx));
+    
+    % Show all PXPs for this dataset
+    for j = 1:numel(pxp_all)
+        if j ~= best_idx
+            fprintf('        %s: PXP = %.3f\n', model_names{j}, pxp_all(j));
+        end
+    end
+end
+
+fprintf('\n');
 
 %% param recovery
 
