@@ -1,6 +1,7 @@
-function BAKR_2024_posterior_predictive_check(project_folder,type,panels)
+function BAKR_2024_posterior_predictive_check(results_folder,type,panels)
+% Changed parameter name from project_folder to results_folder
 
-load(fullfile(project_folder,'results','simulations.mat'));
+load(fullfile(results_folder,'simulations.mat'));
 
 % Loop over models to plot: %'CHASE_CH-leaky_static_k-fitted_max-3_RW-freq';%'CHASE_LK_static_k-fixed_max-0_EWA-single';%'CHASE_LK_static_k-fixed_max-1_RW-freq';%'CHASE_LK_static_k-fixed_max-0_RW-reward';%'CHASE_LK_static_k-fixed_max-0_EWA-full'; %'CHASE_CH-leaky_static_k-fitted_max-3_RW-freq';
 
@@ -15,19 +16,23 @@ for uniqueModels = models_to_plot
 
     modelInt = uniqueModels{1}; %'CHASE_CH-leaky_static_k-fitted_max-3_RW-freq';
 
-    % rename models
-    if contains(modelInt,'CHASE_CH-leaky_static')
+    % rename models - UPDATED by AS to handle both old and new naming conventions
+    if contains(modelInt,'CHASE_CH-leaky_static') || strcmp(modelInt,'CHASE')
         modelName = 'CHASE';
-    elseif contains(modelInt,'max-1_RW-freq')
+    elseif contains(modelInt,'max-1_RW-freq') || strcmp(modelInt,'Ficticious play')
         modelName = 'Ficticious play';
-    elseif contains(modelInt,'max-0_RW-reward')
+    elseif contains(modelInt,'max-0_RW-reward') || strcmp(modelInt,'Reward learner')
         modelName = 'Reward learner';
-    elseif contains(modelInt,'max-0_EWA-single')
+    elseif contains(modelInt,'max-0_EWA-single') || strcmp(modelInt,'Self-tuning EWA')
         modelName = 'Self-tuning EWA';
-    elseif contains(modelInt,'max-0_EWA-full')
+    elseif contains(modelInt,'max-0_EWA-full') || strcmp(modelInt,'Full EWA')
         modelName = 'Full EWA';
-    elseif contains(modelInt,'ToMk')
+    elseif contains(modelInt,'ToMk') || strcmp(modelInt,'ToMk')
         modelName = 'ToMk';
+    else
+        % Fallback: use the model name as-is if no match found
+        modelName = modelInt;
+        warning('Unknown model name format: %s. Using as-is.', modelInt);
     end
 
     set(groot,'DefaultAxesLineWidth',2)
