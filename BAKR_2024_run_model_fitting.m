@@ -138,6 +138,74 @@ data = movevars(data,'gamma','Before','lambda');
 save(fullfile(output_dir,'fits_CHASE_table.mat'),'data');
 
 %% --------------------------------------------------------------------------- %
+%                   POSTERIOR PREDICTIVE SIMULATIONS                           %
+% --------------------------------------------------------------------------- %%
+
+fprintf('\n========================================\n');
+fprintf('GENERATING POSTERIOR PREDICTIVE SIMULATIONS\n');
+fprintf('========================================\n\n');
+
+try
+    % Reload data in table format for new_T
+    load(fullfile(project_folder,'data','llm_data_5.mat'));
+    if ismember('n_trials', data.Properties.VariableNames)
+        data.n_trials = [];
+    end
+    data.n_blocks(:) = 1;
+    new_T = data;  % Save table for plotting
+    % clear data;  % Clear to avoid confusion with struct below
+    
+    % Use all successfully fitted subjects
+    idx_valid = find(arrayfun(@(subj) isfield(subj, 'optim') && ~isempty(subj.optim), fits(1).subj));
+    fprintf('Using %d subjects with valid fits\n\n', numel(idx_valid));
+    
+    % Generate simulations for ALL models
+    all_sims = [];
+    for i_model = 1:numel(fits)
+        fprintf('Simulating from model %d/%d: %s\n', i_model, numel(fits), fits(i_model).model.name);
+        
+        % Simulate data using fitted parameters (no kappa override)
+        model_sims = BAKR_2024_simulate_data(fits(i_model), idx_valid);
+        
+        % Accumulate
+        if isempty(all_sims)
+            all_sims = model_sims;
+        else
+            all_sims = [all_sims; model_sims];
+        end
+        
+        fprintf('  Generated %d simulations\n', numel(model_sims));
+    end
+    
+    % Save as 'sims' (required by plotting function)
+    sims = all_sims;
+    
+    % Verification
+    fprintf('\nVerification:\n');
+    fprintf('  Total simulations: %d\n', numel(sims));
+    fprintf('  Models included: %s\n', strjoin(unique({sims.model}), ', '));
+    fprintf('  Subjects per model: %d\n', numel(idx_valid));
+    fprintf('  Trials per simulation: %d\n', sims(1).n_trials);
+    
+    % Save both sims and new_T to simulations.mat
+    save(fullfile(output_dir,'simulations.mat'), 'sims', 'new_T', '-v7.3');
+    
+    file_size = dir(fullfile(output_dir,'simulations.mat'));
+    fprintf('\n✓ Saved simulations.mat (%d MB)\n', round(file_size.bytes/1024/1024));
+    fprintf('  Location: %s\n', fullfile(output_dir,'simulations.mat'));
+    
+catch e
+    warning('Failed to generate posterior predictive simulations: %s', e.message);
+    fprintf('  Stack trace:\n');
+    for i = 1:length(e.stack)
+        fprintf('    [%d] %s (line %d)\n', i, e.stack(i).name, e.stack(i).line);
+    end
+    fprintf('  Posterior predictive checks will not be available.\n');
+end
+
+fprintf('\n========================================\n\n');
+
+%% --------------------------------------------------------------------------- %
 %                           SUPPLEMENTARY ANALYSES                             %
 % --------------------------------------------------------------------------- %%
 
