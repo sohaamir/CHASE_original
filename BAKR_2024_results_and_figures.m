@@ -103,7 +103,7 @@ try
     fprintf('  → Section 2c: Model recovery\n');
 
     subplot(3,9,7:9);
-    load(fullfile(project_folder,'results','model_recovery.mat'),'sim_fits');
+    load(fullfile(results_folder,'model_recovery.mat'),'sim_fits');
     counts = BAKR_2024_model_recovery_plot(sim_fits,[1,6,3,5,2,4]);
 
     % shorten labels
@@ -128,7 +128,7 @@ try
     %% 2d) posterior predictive check
     fprintf('  → Section 2d: Posterior predictive check\n');
 
-    BAKR_2024_posterior_predictive_check(project_folder,'main',{3,9,10:15});
+    BAKR_2024_posterior_predictive_check(results_folder,'main',{3,9,10:15});
 
     %% 2e) performance per opponent type (model-free)
     fprintf('  → Section 2e: Performance per opponent type\n');
@@ -334,7 +334,7 @@ histogram([ks{idx_RPS3}],'Normalization','probability'); ylim([0,0.4]); title('O
 %% LR recovery
 
 figure; 
-load(fullfile(project_folder,'results','supplementary','model_recovery_LR.mat'),'sim_fits');
+load(fullfile(results_folder,'supplementary','model_recovery_LR.mat'),'sim_fits');  % ✓ FIX
 BAKR_2024_model_recovery_plot(sim_fits,[1,2,4,3]);
 
 % exportgraphics(gcf,'model_recovery_LR.png','Resolution',300);
@@ -376,7 +376,7 @@ pxp_dataset = arrayfun(@(dataset) dataset.rand.AIC.pxp(1),stats_datasets)
 
 %% param recovery
 
-load(fullfile(project_folder,'results','supplementary','parameter_recovery.mat'),'prec');
+load(fullfile(results_folder,'supplementary','parameter_recovery.mat'),'prec');  % ✓ FIX
 
 figure;
 params = {prec.model.params.name};
@@ -424,7 +424,7 @@ mean(gen(:,3) <= 2.5)
 
 %% effect of lowering the upper bound on gamma
 
-load(fullfile(project_folder,'results','supplementary','fits_bounded.mat'),'fits_bounded');
+load(fullfile(results_folder,'supplementary','fits_bounded.mat'),'fits_bounded');
 
 gamma = arrayfun(@(subj) subj.params.gamma,fits_bounded(1).subj);
 mean(gamma > 10)
@@ -496,7 +496,7 @@ mean(r>.8)
 
 %% posterior predictive for alternative models
 
-BAKR_2024_posterior_predictive_check(project_folder,'all')  
+BAKR_2024_posterior_predictive_check(results_folder,'all')
 
 %% parameter correlations
 
@@ -585,10 +585,10 @@ fprintf('  → Analyzing parameter correlations by dataset features\n');
 t = table();
 t.dataset = datasets;
 
-% Define contrasts relevant to LLM data
-t.human = double(contains(datasets, 'HUMAN'))';          % Human vs LLM (0=LLM, 1=Human)
-t.deepseek = double(contains(datasets, 'DEEPSEEK'))';    % DeepSeek vs GPT (1=DeepSeek, 0=GPT)
-t.scot = double(contains(datasets, 'SCOT'))';            % Chain-of-thought vs normal (1=SCOT, 0=Normal)
+% Define contrasts relevant to LLM data (FIX: Remove transpose operator)
+t.human = double(contains(datasets, 'HUMAN'));      % Human vs LLM (0=LLM, 1=Human)
+t.deepseek = double(contains(datasets, 'DEEPSEEK')); % DeepSeek vs GPT (1=DeepSeek, 0=GPT)
+t.scot = double(contains(datasets, 'SCOT'));         % Chain-of-thought vs normal (1=SCOT, 0=Normal)
 
 fprintf('\n  Dataset feature coding:\n');
 fprintf('    %-20s Human  DeepSeek  SCOT\n', 'Dataset');
@@ -598,6 +598,15 @@ for i = 1:numel(datasets)
         datasets{i}, t.human(i), t.deepseek(i), t.scot(i));
 end
 fprintf('\n');
+
+% DIAGNOSTIC: Check dimensions
+fprintf('\n=== DIMENSION DEBUG ===\n');
+fprintf('datasets class: %s\n', class(datasets));
+fprintf('datasets size: %s\n', mat2str(size(datasets)));
+
+fprintf('\nTable height after t.dataset = datasets: %d\n', height(t));
+fprintf('Expected column size: [%d, 1]\n', height(t));
+fprintf('======================\n\n');
 
 % Test each parameter correlation
 significant_results = [];
@@ -669,134 +678,3 @@ else
 end
 
 fprintf('  ✓ Parameter correlations analysis complete\n\n');
-
-%% effect of hyperparameter tuning
-
-if isfolder(fullfile(project_folder,'results','pmod_ordinal'))
-
-    decoding_folder = fullfile(project_folder,'results','pmod_ordinal','decoding_belief_updates','fb_meanbetas');
-    load(fullfile(decoding_folder,'train_all','effect_of_regularization.mat'),'all_stats');
-    
-    models = {'no regularization','nested within subj','nested 5-fold','all 5-fold'};
-    
-    % === primary === %
-    
-    figure; 
-    subplot(1,2,1); hold on;
-    for i_model = 1:4
-    
-        stats = all_stats{i_model};
-        if i_model == 1
-            teIdx = stats.teIdx;
-        end
-        for i_subj = 1:numel(teIdx)
-            idx = teIdx{i_subj};
-            [rs(i_subj),ps(i_subj)] = corr(stats.yfit(idx),stats.Y(idx));
-        end
-        if i_model == 1
-            yline(mean(rs),'k--');
-        end
-    
-        mn_sinaplot(rs,-1:0.01:1,i_model,[],[],0.2);
-    
-    end
-    title('Primary sample (LOO-CV)');
-    ylabel('Correlation coefficient');
-    xticks(1:numel(models));
-    xticklabels(models);
-    
-    % === replication === %
-    
-    replication_decoding_folder = fullfile(project_folder,'results','replication','pmod_ordinal','decoding_belief_updates','fb_meanbetas');
-    load(fullfile(replication_decoding_folder,'predictions','pred_control_analyses.mat'),'r');
-    
-    subplot(1,2,2); hold on;
-    for i_model = 1:4
-    
-        if i_model == 1
-            yline(mean(r(:,i_model)),'k--');
-        end
-        mn_sinaplot(r(:,i_model),-1:0.1:1,i_model,[],[],0.2);
-    
-    end
-    title('Replication sample');
-    xticks(1:numel(models)); xticklabels(models);
-    ylabel('Correlation coefficient');
-    sgtitle('Decoding accuracy for differerent hyperparameter tuning strategies');
-    
-    % exportgraphics(gcf,'decoding_hyperparameter_analysis.png');
-
-end
-
-%% alternative decoding visualizations (individual bins)
-
-% === primary === %
-
-% load decoding data
-load(fullfile(project_folder,'results','decoding','decoding.mat'),'stats');
-
-figure; 
-subplot(1,2,1); hold on;
-
-% regression lines individual subjects
-clear r
-bins = linspace(-1,1,5);
-for i_subj = 1:numel(stats.teIdx)
-    
-    idx = stats.teIdx{i_subj};
-    p = plot(stats.yfit(idx),stats.Y(idx));
-    p.Color = [colors(1,:) 0.2];
-
-    if sum(idx) == 5
-        yfit(i_subj,:) = stats.yfit(idx);
-    else
-        [yfit(i_subj,:),Y(i_subj,:)] = deal(NaN);
-        for curr_bin = stats.Y(idx)'
-            idx_curr = (idx & stats.Y == curr_bin);
-            yfit(i_subj,find(bins == curr_bin)) = stats.yfit(idx_curr);
-        end
-    end
-    
-end
-plot(nanmean(yfit),bins,'LineWidth',3,'Color',colors(1,:)); 
-
-% regression line pooled data
-xlim([-2,2]);
-xticks(-2:2);
-yticks(-1:0.5:1);
-
-% identity
-plot(bins,bins,'k--');
-
-set(gca,'XTickLabelMode','auto')
-title('Training sample (LOO-CV)');
-xlabel('Decoded belief update');
-ylabel('True belief update');
-
-% === replication === %
-
-load(fullfile(project_folder,'results','decoding','decoding_replication.mat'),'data');
-data(32,:) = []; % remove chance participant (3035)
-BU_hat = data.BU_hat;
-r = data.r;
-
-% regression lines individual subjects
-clear new_r
-subplot(1,2,2); hold on;
-for i_subj = 1:size(BU_hat,1)
-    p = plot(BU_hat(i_subj,:),bins);
-    p.Color = [colors(1,:) 0.2];
-end
-plot(nanmean(BU_hat),bins,'LineWidth',3,'Color',colors(1,:)); 
-xlim([-2,2]);
-xticks(-2:2);
-yticks(-1:0.5:1);
-
-% identity line
-plot(bins,bins,'k--');
-
-title('Replication sample');
-xlabel('Decoded belief update');
-ylabel('True belief update');
-
-% exportgraphics(gcf,'decoding_lines.png','Resolution',300);
