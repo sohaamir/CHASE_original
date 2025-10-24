@@ -2,7 +2,7 @@
 % Results and figures for Buergi, Aydogan, Konovalov, & Ruff (2024):
 % "A neural fingerprint of adaptive mentalization" 
 %
-% To re-create the files used herein, use run_model_fitting and run_fmri_analysis
+% To re-create the files used herein, use run_model_fitting
 %
 
 %% set folder
@@ -91,7 +91,7 @@ try
 
     yticklabels({'Fict','EWA','RL','ToMk','EWA-S','CHASE'});
 
-    exportgraphics(gca,'model_comparison.png','Resolution',300);
+    exportgraphics(gca, fullfile(output_dir, 'model_comparison.png'), 'Resolution', 300);
 
     pxp_dataset = arrayfun(@(dataset) dataset.rand.AIC.pxp(1),stats)
 
@@ -768,3 +768,979 @@ else
 end
 
 fprintf('  ✓ Parameter correlations analysis complete\n\n');
+
+
+%% ========================================================================== %
+%                    DATASET-SPECIFIC ANALYSES                               %
+% ========================================================================== %%
+
+fprintf('\n========================================\n');
+fprintf('DATASET-SPECIFIC ANALYSES\n');
+fprintf('========================================\n\n');
+
+% Get datasets
+datasets = unique(all_fits.dataset);
+n_datasets = numel(datasets);
+
+fprintf('Analyzing %d datasets:\n', n_datasets);
+for i = 1:n_datasets
+    fprintf('  %d. %s\n', i, datasets{i});
+end
+fprintf('\n');
+
+% Define colors for each dataset
+dataset_colors = struct();
+dataset_colors.DEEPSEEK_NORMAL = [0.2, 0.4, 0.7];  % Blue
+dataset_colors.DEEPSEEK_SCOT = [0.3, 0.7, 0.5];    % Green
+dataset_colors.GPT_NORMAL = [0.9, 0.5, 0.2];       % Orange
+dataset_colors.HUMAN = [0.7, 0.3, 0.5];            % Purple
+
+%% -------------------------------------------------------------------------- %
+%                    1. POSTERIOR PREDICTIVE CHECK BY DATASET                %
+% -------------------------------------------------------------------------- %%
+
+fprintf('1. Posterior predictive check by dataset\n');
+
+try
+    % Load simulations
+    load(fullfile(results_folder,'simulations.mat'), 'sims', 'new_T');
+    
+    % Get CHASE simulations only
+    chase_model_name = fits(1).model.name;  % Should be 'CHASE'
+    sims_chase = sims(strcmp({sims.model}, chase_model_name));
+    
+    fprintf('   Found %d CHASE simulations\n', numel(sims_chase));
+    
+    % Create one figure per dataset
+    for i_dataset = 1:n_datasets
+        curr_dataset = datasets{i_dataset};
+        fprintf('   Processing %s... ', curr_dataset);
+        
+        % Get data for this dataset
+        data_real = new_T(strcmp(new_T.dataset, curr_dataset), :);
+        
+        % Get simulations for this dataset
+        % Match by subjID (sims have subjID = model*100 + original_subj_idx)
+        subj_ids_dataset = unique(data_real.subjID);
+        
+        % Find corresponding simulations
+        % Note: simulations have different subjIDs, need to map by position
+        idx_dataset_subjs = find(ismember([fits(1).subj.subjID], subj_ids_dataset));
+        
+        % Simulations for these subjects start at 100 + idx
+        sim_ids = 100 + idx_dataset_subjs;
+        sims_dataset = sims_chase(ismember([sims_chase.subjID], sim_ids));
+        
+        if isempty(sims_dataset)
+            fprintf('no simulations found, skipping\n');
+            continue;
+        end
+        
+        % Create simulation table
+        sim_table = table();
+        for i_sim = 1:numel(sims_dataset)
+            n_trials = sims_dataset(i_sim).n_trials;
+            temp = table();
+            temp.subjID = repmat(sims_dataset(i_sim).subjID, n_trials, 1);
+            temp.trial = sims_dataset(i_sim).trial;
+            temp.choice_own = sims_dataset(i_sim).choice_own;
+            temp.choice_other = sims_dataset(i_sim).choice_other;
+            temp.bot_level = repelem(sims_dataset(i_sim).bot_level, 40);
+            sim_table = [sim_table; temp];
+        end
+        
+        % Compute behavioral signatures
+        [meanBR_real, SEBR_real, meanBR_sim, SEBR_sim] = ...
+            compute_behavioral_signatures(data_real, sim_table);
+        
+        % Create figure
+        fig = figure('Position', [100, 100, 1400, 400]);
+        dataset_color = dataset_colors.(strrep(curr_dataset, '-', '_'));
+        
+        for bot_level = 0:2
+            subplot(1, 3, bot_level + 1);
+            hold on;
+            
+            % Plot simulated data (signature k+1 and other k)
+            t = 1:40;
+            
+            % Signature of k+1 (correct level)
+            sim_mean_correct = squeeze(meanBR_sim(bot_level + 1, bot_level + 1, :));
+            sim_se_correct = squeeze(SEBR_sim(bot_level + 1, bot_level + 1, :));
+            fill([t fliplr(t)], ...
+                 [(sim_mean_correct + sim_se_correct)', ...
+                  fliplr((sim_mean_correct - sim_se_correct)')], ...
+                 dataset_color, 'FaceAlpha', 0.15, 'EdgeColor', 'none');
+            plot(t, sim_mean_correct, 'Color', dataset_color, 'LineWidth', 2);
+            
+            % Signature of other k (pooled)
+            other_levels = setdiff(1:3, bot_level + 1);
+            sim_mean_other = squeeze(mean(meanBR_sim(other_levels, bot_level + 1, :), 1));
+            sim_se_other = squeeze(mean(SEBR_sim(other_levels, bot_level + 1, :), 1));
+            fill([t fliplr(t)], ...
+                 [(sim_mean_other + sim_se_other)', ...
+                  fliplr((sim_mean_other - sim_se_other)')], ...
+                 [0.5 0.5 0.5], 'FaceAlpha', 0.15, 'EdgeColor', 'none');
+            plot(t, sim_mean_other, 'Color', [0.5 0.5 0.5], 'LineWidth', 2);
+            
+            % Plot real data
+            real_mean_correct = squeeze(meanBR_real(bot_level + 1, bot_level + 1, :));
+            real_se_correct = squeeze(SEBR_real(bot_level + 1, bot_level + 1, :));
+            errorbar(t, real_mean_correct, real_se_correct, ...
+                     'o', 'Color', dataset_color, 'MarkerFaceColor', dataset_color, ...
+                     'MarkerSize', 3, 'LineWidth', 0.75, 'CapSize', 2);
+            
+            real_mean_other = squeeze(mean(meanBR_real(other_levels, bot_level + 1, :), 1));
+            real_se_other = squeeze(mean(SEBR_real(other_levels, bot_level + 1, :), 1));
+            errorbar(t, real_mean_other, real_se_other, ...
+                     'o', 'Color', [0.3 0.3 0.3], 'MarkerFaceColor', [0.5 0.5 0.5], ...
+                     'MarkerSize', 3, 'LineWidth', 0.75, 'CapSize', 2);
+            
+            % Format
+            xlabel('Trial', 'FontSize', 12);
+            if bot_level == 0
+                ylabel('Frequency relative to chance', 'FontSize', 12);
+            end
+            title(sprintf('Bot k = %d', bot_level), 'FontSize', 13, 'FontWeight', 'bold');
+            ylim([-0.5, 0.6]);
+            xlim([0, 41]);
+            grid off;
+            box off;
+            
+            % Legend on first panel
+            if bot_level == 0
+                legend({'Signature k+1 (sim)', '', 'Other k (sim)', '', ...
+                        'Data k+1', 'Data other'}, ...
+                       'Location', 'northwest', 'FontSize', 9);
+            end
+        end
+        
+        % Overall title
+        sgtitle(sprintf('Posterior Predictive Check: %s', strrep(curr_dataset, '-', ' ')), ...
+                'FontSize', 15, 'FontWeight', 'bold');
+        
+        % Save
+        filename = sprintf('posterior_predictive_%s.png', strrep(curr_dataset, '-', '_'));
+        exportgraphics(fig, fullfile(results_folder, filename), 'Resolution', 300);
+        fprintf('saved\n');
+        close(fig);
+    end
+    
+    fprintf('   ✓ Posterior predictive checks complete\n\n');
+    
+catch e
+    fprintf('\n   ❌ Error: %s\n', e.message);
+    for i = 1:min(3, length(e.stack))
+        fprintf('      [%d] %s (line %d)\n', i, e.stack(i).name, e.stack(i).line);
+    end
+    fprintf('\n');
+end
+
+%% -------------------------------------------------------------------------- %
+%                    2. OVERALL SCORE BY DATASET                             %
+% -------------------------------------------------------------------------- %%
+
+fprintf('2. Overall score against opponent types by dataset\n');
+
+try
+    fig = figure('Position', [100, 100, 1400, 400]);
+    
+    for i_dataset = 1:n_datasets
+        curr_dataset = datasets{i_dataset};
+        fprintf('   Processing %s... ', curr_dataset);
+        
+        % Get data
+        fit = all_fits(strcmp(all_fits.dataset, curr_dataset), :);
+        subjects = unique(fit.subjID);
+        
+        % Compute scores per bot level
+        win_rate = NaN(numel(subjects), 3);
+        for i_subj = 1:numel(subjects)
+            for bot = 0:2
+                idx = (fit.subjID == subjects(i_subj) & fit.bot_level == bot);
+                win_rate(i_subj, bot + 1) = nanmean(fit.score_own(idx));
+            end
+        end
+        
+        % Compute chance
+        n = 1000;
+        pi = [0 1 -1];
+        sample_score = NaN(n, 1);
+        for ii = 1:n
+            a = mnrnd(80, [1/3 1/3 1/3], numel(subjects));
+            individual_scores = a * pi' / 80;
+            sample_score(ii) = mean(individual_scores);
+        end
+        chance_upper = prctile(sample_score, 97.5);
+        chance_lower = prctile(sample_score, 2.5);
+        
+        % Plot
+        subplot(1, n_datasets, i_dataset);
+        hold on;
+        
+        dataset_color = dataset_colors.(strrep(curr_dataset, '-', '_'));
+        
+        % Chance band
+        fill([0.26, 0.26, 3.75, 3.75], ...
+             [chance_lower, chance_upper, chance_upper, chance_lower], ...
+             [0.9, 0.9, 0.9], 'FaceAlpha', 0.8, 'EdgeAlpha', 0);
+        
+        % Violin plots
+        for ii = 1:3
+            mn_sinaplot(win_rate(:, ii), -1:0.01:1, ii, dataset_color, 20, 0.12);
+        end
+        
+        % Format
+        title(strrep(curr_dataset, '-', ' '), 'FontSize', 12, 'FontWeight', 'bold');
+        ylim([-0.35, 0.65]);
+        yticks(-0.2:0.2:0.6);
+        xlim([0.25, 3.75]);
+        xticks(1:3);
+        xticklabels({"k=0", "k=1", "k=2"});
+        xlabel("Opponent level", 'FontSize', 11);
+        
+        if i_dataset == 1
+            ylabel("Overall score", 'FontSize', 11);
+        end
+        
+        box off;
+        
+        fprintf('done\n');
+    end
+    
+    sgtitle('Overall Score Against Different Opponent Types', ...
+            'FontSize', 15, 'FontWeight', 'bold');
+    
+    exportgraphics(fig, fullfile(results_folder, 'overall_score_by_dataset.png'), 'Resolution', 300);
+    fprintf('   ✓ Overall score analysis complete\n\n');
+    close(fig);
+    
+catch e
+    fprintf('\n   ❌ Error: %s\n', e.message);
+    fprintf('\n');
+end
+
+%% -------------------------------------------------------------------------- %
+%                    3. GAMEPLAY PER OPPONENT TYPE BY DATASET                %
+% -------------------------------------------------------------------------- %%
+
+fprintf('3. Gameplay per opponent type by dataset\n');
+
+try
+    % Compute expected level played
+    all_fits.exp_k_played = zeros(height(all_fits), 4);
+    all_fits.exp_k_played(all_fits.kappa == 0, 1) = 1;
+    all_fits.exp_k_played(all_fits.kappa == 1, 2) = 1;
+    
+    idx_k2 = (all_fits.kappa == 2);
+    all_fits.exp_k_played(idx_k2, 2:3) = all_fits.beliefs(idx_k2, 1:2);
+    
+    idx_k3 = (all_fits.kappa == 3);
+    all_fits.exp_k_played(idx_k3, 2:4) = all_fits.beliefs(idx_k3, :);
+    
+    % Create figure
+    fig = figure('Position', [100, 100, 1400, 900]);
+    
+    for i_dataset = 1:n_datasets
+        curr_dataset = datasets{i_dataset};
+        fprintf('   Processing %s... ', curr_dataset);
+        
+        fit = all_fits(strcmp(all_fits.dataset, curr_dataset), :);
+        subjects = unique(fit.subjID);
+        n_subj = numel(subjects);
+        
+        dataset_color = dataset_colors.(strrep(curr_dataset, '-', '_'));
+        
+        for curr_bot = 0:2
+            subplot_idx = (i_dataset - 1) * 3 + curr_bot + 1;
+            subplot(n_datasets, 3, subplot_idx);
+            hold on;
+            
+            idx = (fit.bot_level == curr_bot);
+            
+            % Count trials above cutoff
+            level_counts = NaN(n_subj, 4);
+            for i_subj = 1:n_subj
+                idx_subj = (idx & fit.subjID == subjects(i_subj));
+                level_counts(i_subj, :) = mean(fit.exp_k_played(idx_subj, :) > 0.5);
+            end
+            
+            % Plot
+            b = bar(mean(level_counts), 'FaceAlpha', 0.5, 'FaceColor', dataset_color, ...
+                    'EdgeColor', dataset_color, 'LineWidth', 1.5);
+            bar(sort(level_counts', 2), 'FaceAlpha', 0.2, 'FaceColor', dataset_color, ...
+                'EdgeColor', dataset_color, 'EdgeAlpha', 0.2);
+            
+            % Format
+            xticks(1:4);
+            xticklabels(0:3);
+            xlim([0, 5]);
+            ylim([0, 1]);
+            yticks(0:0.2:1);
+            
+            if curr_bot == 0
+                ylabel(strrep(curr_dataset, '-', ' '), 'FontSize', 11, 'FontWeight', 'bold');
+            else
+                yticklabels({});
+            end
+            
+            if i_dataset == 1
+                title(sprintf('vs Bot k=%d', curr_bot), 'FontSize', 11);
+            end
+            
+            if i_dataset == n_datasets && curr_bot == 1
+                xlabel("Estimated subject level", 'FontSize', 11);
+            end
+            
+            box off;
+        end
+        
+        fprintf('done\n');
+    end
+    
+    sgtitle('Gameplay Per Opponent Type', 'FontSize', 15, 'FontWeight', 'bold');
+    
+    exportgraphics(fig, fullfile(results_folder, 'gameplay_by_dataset.png'), 'Resolution', 300);
+    fprintf('   ✓ Gameplay analysis complete\n\n');
+    close(fig);
+    
+catch e
+    fprintf('\n   ❌ Error: %s\n', e.message);
+    fprintf('\n');
+end
+
+%% -------------------------------------------------------------------------- %
+%                    4. BELIEF UPDATES BY DATASET                            %
+% -------------------------------------------------------------------------- %%
+
+fprintf('4. Opponent level belief updates by dataset\n');
+
+try
+    fig = figure('Position', [100, 100, 1400, 400]);
+    
+    for i_dataset = 1:n_datasets
+        curr_dataset = datasets{i_dataset};
+        fprintf('   Processing %s... ', curr_dataset);
+        
+        fit = all_fits(strcmp(all_fits.dataset, curr_dataset), :);
+        
+        % Extract z-scored timecourses
+        fit_z = fit;
+        kl_div = [];
+        ii = 1;
+        
+        for subj = unique(fit.subjID)'
+            fit_z.subj_KL_div(fit.subjID == subj & ~fit.missing) = ...
+                zscore(fit.subj_KL_div(fit.subjID == subj & ~fit.missing));
+            
+            n_blocks_per_subj = numel(unique(fit.block));
+            for block = 1:n_blocks_per_subj
+                kl_div(ii, :) = fit_z.subj_KL_div(fit_z.subjID == subj & fit_z.block == block);
+                ii = ii + 1;
+            end
+        end
+        
+        % Plot
+        subplot(1, n_datasets, i_dataset);
+        hold on;
+        
+        dataset_color = dataset_colors.(strrep(curr_dataset, '-', '_'));
+        
+        % Individual traces
+        plot(kl_div', 'Color', [dataset_color 0.02]);
+        
+        % Mean with shading
+        stdshade(kl_div, 0.2, dataset_color);
+        plot(nanmean(kl_div), 'Color', 'k', 'LineWidth', 2);
+        
+        % Format
+        title(strrep(curr_dataset, '-', ' '), 'FontSize', 12, 'FontWeight', 'bold');
+        ylim([-1.5, 4]);
+        xlim([0, 40]);
+        xlabel("Trial", 'FontSize', 11);
+        
+        if i_dataset == 1
+            ylabel("Belief update (z-scored)", 'FontSize', 11);
+        end
+        
+        box off;
+        
+        fprintf('done\n');
+    end
+    
+    sgtitle('Opponent Level Belief Updates', 'FontSize', 15, 'FontWeight', 'bold');
+    
+    exportgraphics(fig, fullfile(results_folder, 'belief_updates_by_dataset.png'), 'Resolution', 300);
+    fprintf('   ✓ Belief updates analysis complete\n\n');
+    close(fig);
+    
+catch e
+    fprintf('\n   ❌ Error: %s\n', e.message);
+    fprintf('\n');
+end
+
+%% -------------------------------------------------------------------------- %
+%                    5. PARAMETER RECOVERY BY DATASET                        %
+% -------------------------------------------------------------------------- %%
+
+fprintf('5. Parameter recovery by dataset\n');
+
+try
+    load(fullfile(results_folder,'supplementary','parameter_recovery_by_dataset.mat'), 'prec_by_dataset');
+    
+    dataset_fields = fieldnames(prec_by_dataset);
+    
+    fig = figure('Position', [100, 100, 1400, 350 * n_datasets]);
+    
+    params = {prec_by_dataset.(dataset_fields{1}).model.params.name};
+    param_lims = [0.4, 4.2; 0, 3.6; 0, 10; 0, 1; -0.5, 3.5];
+    
+    for i_dataset = 1:numel(dataset_fields)
+        curr_field = dataset_fields{i_dataset};
+        curr_dataset = prec_by_dataset.(curr_field).dataset;
+        
+        fprintf('   Plotting %s... ', curr_dataset);
+        
+        gen = prec_by_dataset.(curr_field).params.gen;
+        est = prec_by_dataset.(curr_field).params.est;
+        
+        % Apply censoring
+        est(est(:, end) < 2, 3) = NaN;  % No gamma if kappa < 2
+        est(est(:, end) == 0, 2) = NaN;  % No lambda if kappa < 1
+        
+        dataset_color = dataset_colors.(strrep(curr_dataset, '-', '_'));
+        
+        % Plot parameters
+        ii = 1;
+        for i_param = [4, 1:3, 5]  % Order: kappa, alpha, beta, gamma, lambda
+            subplot_idx = (i_dataset - 1) * 5 + ii;
+            subplot(n_datasets, 5, subplot_idx);
+            hold on;
+            
+            % Identity line
+            plot(param_lims(i_param, :), param_lims(i_param, :), 'k--', 'Color', [0.7 0.7 0.7]);
+            
+            % Scatter
+            if i_param == 5
+                noise = normrnd(0, 0.15, size(gen, 1), 2);
+                scatter(gen(:, i_param) + noise(:, 1), est(:, i_param) + noise(:, 2), ...
+                        'filled', 'MarkerFaceAlpha', 0.3, 'MarkerEdgeAlpha', 0.5, ...
+                        'MarkerEdgeColor', dataset_color, 'CData', dataset_color);
+            else
+                scatter(gen(:, i_param), est(:, i_param), ...
+                        'filled', 'MarkerFaceAlpha', 0.3, 'MarkerEdgeAlpha', 0.5, ...
+                        'MarkerEdgeColor', dataset_color, 'CData', dataset_color);
+            end
+            
+            % Correlation
+            [r, p] = corr(gen(:, i_param), est(:, i_param), 'rows', 'pairwise');
+            
+            % Format
+            title(sprintf('%s (r=%.2f)', params{i_param}, r), 'FontSize', 10);
+            xlim(param_lims(i_param, :));
+            ylim(param_lims(i_param, :));
+            axis square;
+            
+            if ii == 1
+                ylabel(strrep(curr_dataset, '-', ' '), 'FontSize', 11, 'FontWeight', 'bold');
+            end
+            
+            if i_dataset == n_datasets
+                xlabel('Generating', 'FontSize', 10);
+            end
+            
+            if i_dataset == 1 && ii == 1
+                ylabel({'Recovered', strrep(curr_dataset, '-', ' ')}, 'FontSize', 11, 'FontWeight', 'bold');
+            end
+            
+            box off;
+            ii = ii + 1;
+        end
+        
+        fprintf('done\n');
+    end
+    
+    sgtitle('Parameter Recovery by Dataset', 'FontSize', 15, 'FontWeight', 'bold');
+    
+    exportgraphics(fig, fullfile(results_folder, 'parameter_recovery_by_dataset.png'), 'Resolution', 300);
+    fprintf('   ✓ Parameter recovery plotting complete\n\n');
+    close(fig);
+    
+catch e
+    fprintf('\n   ❌ Error in parameter recovery plotting: %s\n', e.message);
+    fprintf('   (This is expected if fitting script hasn''t been updated yet)\n\n');
+end
+
+fprintf('========================================\n');
+fprintf('DATASET-SPECIFIC ANALYSES COMPLETE\n');
+fprintf('========================================\n\n');
+
+%% Helper function for behavioral signatures
+function [meanBR_real, SEBR_real, meanBR_sim, SEBR_sim] = compute_behavioral_signatures(data_real, data_sim)
+    % Compute best-response signatures
+    % Returns: [3 levels × 3 bot_levels × 40 trials]
+    
+    winSize = 5;
+    
+    for data_type = 1:2
+        if data_type == 1
+            data = data_real;
+        else
+            data = data_sim;
+        end
+        
+        % Initialize
+        BR = nan(40, 3, 3);  % trials × bot_levels × BR_types
+        
+        for bot_level = 0:2
+            data_bot = data(data.bot_level == bot_level, :);
+            n_trials = height(data_bot) - 1;
+            
+            if n_trials < 1, continue; end
+            
+            % BR to level 0 (opponent's last action + 1)
+            predBR1 = mod(data_bot.choice_other(1:end-1), 3) + 1;
+            
+            % BR to level 1 (own last action - 1)
+            predBR2 = data_bot.choice_own(1:end-1) - 1;
+            predBR2(predBR2 == 0) = 3;
+            
+            % BR to level 2 (opponent's last action)
+            predBR3 = data_bot.choice_other(1:end-1);
+            
+            % Check correctness
+            BR(1:n_trials, bot_level + 1, 1) = (predBR1 == data_bot.choice_own(2:end));
+            BR(1:n_trials, bot_level + 1, 2) = (predBR2 == data_bot.choice_own(2:end));
+            BR(1:n_trials, bot_level + 1, 3) = (predBR3 == data_bot.choice_own(2:end));
+        end
+        
+        % Moving average
+        meanBR = nan(3, 3, 40);
+        SEBR = nan(3, 3, 40);
+        
+        for trial = 1:40
+            if trial < winSize
+                range = 1:trial;
+            else
+                range = trial - winSize + 1:trial;
+            end
+            
+            for bot_level = 1:3
+                for br_type = 1:3
+                    vals = BR(range, bot_level, br_type);
+                    vals = vals(~isnan(vals));
+                    
+                    if ~isempty(vals)
+                        meanBR(br_type, bot_level, trial) = mean(vals) - 0.33;  % Relative to chance
+                        SEBR(br_type, bot_level, trial) = 1.96 * std(vals) / sqrt(length(vals));
+                    end
+                end
+            end
+        end
+        
+        if data_type == 1
+            meanBR_real = meanBR;
+            SEBR_real = SEBR;
+        else
+            meanBR_sim = meanBR;
+            SEBR_sim = SEBR;
+        end
+    end
+end
+
+
+%% Block Consistency Analysis (One-block vs Three-block fitting)
+
+fprintf('  → Block consistency analysis\n');
+
+try
+    % ========================================================================
+    % DEBUG: Check input structure
+    % ========================================================================
+    fprintf('\n    [DEBUG] Checking input structures...\n');
+    fprintf('      fits type: %s\n', class(fits));
+    fprintf('      fits length: %d\n', numel(fits));
+    fprintf('      fits(1).subj type: %s\n', class(fits(1).subj));
+    fprintf('      fits(1).subj length: %d\n', numel(fits(1).subj));
+    fprintf('      fits(1).subj fields: %s\n', strjoin(fieldnames(fits(1).subj), ', '));
+    if numel(fits(1).subj) > 0
+        fprintf('      fits(1).subj(1) data fields: %s\n', strjoin(fieldnames(fits(1).subj(1).data), ', '));
+        
+        % Check if dataset is cell or char
+        dataset_example = fits(1).subj(1).data.dataset;
+        fprintf('      fits(1).subj(1).data.dataset type: %s\n', class(dataset_example));
+        if iscell(dataset_example)
+            fprintf('      fits(1).subj(1).data.dataset: %s (cell)\n', dataset_example{1});
+        else
+            fprintf('      fits(1).subj(1).data.dataset: %s (char)\n', dataset_example);
+        end
+    end
+    
+    % Load the pooled fits (current approach)
+    fits_pooled = fits(1);
+    fprintf('      fits_pooled.subj length: %d\n', numel(fits_pooled.subj));
+    
+    % ========================================================================
+    % Refit with separate blocks
+    % ========================================================================
+    fprintf('\n    [DEBUG] Loading data for separate block fitting...\n');
+    load(fullfile(project_folder,'data','llm_data_5.mat'));
+    fprintf('      Data loaded, height: %d\n', height(data));
+    
+    % Restructure: keep blocks separate
+    if ismember('n_trials', data.Properties.VariableNames)
+        data.n_trials = [];
+    end
+    data.n_blocks(:) = 3;  % Signal to fit separate parameters per block
+    fprintf('      Set n_blocks = 3\n');
+    
+    % Convert WITH block_var to fit separate parameters per block
+    fprintf('      Converting to struct with block_var...\n');
+    data_sep = mn_table2struct(data, 'subjID', 'remove_redundancy', ...
+                               'exceptions', {'choice_own','choice_other','missing'}, ...
+                               'block_var', 'block');
+    fprintf('      Converted, length: %d subjects\n', numel(data_sep));
+    
+    fprintf('    Fitting model with separate parameters per block...\n');
+    model = BAKR_2024_CHASE_config('CH','fitted',3,'RW-freq');
+    fits_separate = mn_fit(data_sep, model);
+    
+    fprintf('\n    [DEBUG] Separate fitting complete\n');
+    fprintf('      fits_separate.subj length: %d\n', numel(fits_separate.subj));
+    fprintf('      fits_separate.subj(1) fields: %s\n', strjoin(fieldnames(fits_separate.subj(1)), ', '));
+    fprintf('      fits_separate.subj(1).params type: %s\n', class(fits_separate.subj(1).params));
+    if isstruct(fits_separate.subj(1).params)
+        fprintf('      fits_separate.subj(1).params length: %d\n', numel(fits_separate.subj(1).params));
+    end
+    
+    % ========================================================================
+    % Extract parameters for comparison
+    % ========================================================================
+    param_names = {'alpha', 'beta', 'gamma', 'lambda', 'kappa'};
+    datasets = {'DEEPSEEK-NORMAL', 'DEEPSEEK-SCOT', 'GPT-NORMAL', 'HUMAN'};
+    
+    fprintf('\n    [DEBUG] Starting figure generation...\n');
+    
+    % Create figure
+    figure('Position', [100, 100, 1400, 1000]);
+    
+    for i_dataset = 1:numel(datasets)
+        fprintf('      Processing dataset %d/%d: %s\n', i_dataset, numel(datasets), datasets{i_dataset});
+        
+        % ========================================================================
+        % DEBUG: Check indexing - SAFE extraction
+        % ========================================================================
+        fprintf('        [DEBUG] Getting dataset names...\n');
+        
+        % Extract dataset names properly (handle cell arrays)
+        dataset_names_pooled = cell(numel(fits_pooled.subj), 1);
+        for i = 1:numel(fits_pooled.subj)
+            ds = fits_pooled.subj(i).data.dataset;
+            if iscell(ds)
+                dataset_names_pooled{i} = ds{1};
+            else
+                dataset_names_pooled{i} = ds;
+            end
+        end
+        fprintf('          dataset_names_pooled extracted: %d names\n', numel(dataset_names_pooled));
+        
+        dataset_names_separate = cell(numel(fits_separate.subj), 1);
+        for i = 1:numel(fits_separate.subj)
+            ds = fits_separate.subj(i).data.dataset;
+            if iscell(ds)
+                dataset_names_separate{i} = ds{1};
+            else
+                dataset_names_separate{i} = ds;
+            end
+        end
+        fprintf('          dataset_names_separate extracted: %d names\n', numel(dataset_names_separate));
+        
+        % Find subjects in this dataset
+        idx_pooled = strcmp(dataset_names_pooled, datasets{i_dataset});
+        fprintf('          idx_pooled: %d subjects found\n', sum(idx_pooled));
+        
+        idx_separate = strcmp(dataset_names_separate, datasets{i_dataset});
+        fprintf('          idx_separate: %d subjects found\n', sum(idx_separate));
+        
+        n_subj = sum(idx_pooled);
+        
+        for i_param = 1:5
+            fprintf('          Parameter %d/%d: %s\n', i_param, 5, param_names{i_param});
+            
+            subplot(4, 5, (i_dataset-1)*5 + i_param);
+            hold on;
+            
+            % ========================================================================
+            % DEBUG: Extract pooled estimates
+            % ========================================================================
+            fprintf('            [DEBUG] Extracting pooled estimates...\n');
+            
+            % SAFE extraction
+            params_pooled = NaN(n_subj, 1);
+            subj_pooled_indices = find(idx_pooled);
+            for i_s = 1:n_subj
+                params_pooled(i_s) = fits_pooled.subj(subj_pooled_indices(i_s)).params.(param_names{i_param});
+            end
+            fprintf('              params_pooled extracted: %d values\n', numel(params_pooled));
+            
+            % ========================================================================
+            % DEBUG: Extract separate estimates
+            % ========================================================================
+            fprintf('            [DEBUG] Extracting separate estimates...\n');
+            
+            params_sep_mean = NaN(n_subj, 1);
+            subj_separate_indices = find(idx_separate);
+            
+            for i_subj = 1:n_subj
+                if i_subj <= 2  % Only debug first 2 subjects
+                    fprintf('              Subject %d/%d\n', i_subj, n_subj);
+                end
+                
+                curr_params = fits_separate.subj(subj_separate_indices(i_subj)).params;
+                
+                if i_subj == 1
+                    fprintf('                curr_params type: %s, length: %d\n', class(curr_params), numel(curr_params));
+                end
+                
+                block_params = NaN(1, 3);
+                for i_block = 1:3
+                    block_params(i_block) = curr_params(i_block).(param_names{i_param});
+                end
+                params_sep_mean(i_subj) = mean(block_params);
+                
+                if i_subj == 1
+                    fprintf('                block_params: [%.3f, %.3f, %.3f]\n', block_params(1), block_params(2), block_params(3));
+                    fprintf('                mean: %.3f\n', params_sep_mean(i_subj));
+                end
+            end
+            fprintf('              params_sep_mean extracted: %d values\n', numel(params_sep_mean));
+            
+            % ========================================================================
+            % Plotting
+            % ========================================================================
+            
+            % Plot identity line
+            lims = [min([params_pooled; params_sep_mean]), max([params_pooled; params_sep_mean])];
+            plot(lims, lims, 'k--', 'LineWidth', 1, 'Color', [0.7 0.7 0.7]);
+            
+            % Scatter plot
+            dataset_colors = struct('DEEPSEEK_NORMAL', [0.3, 0.7, 0.5], ...
+                                   'DEEPSEEK_SCOT', [0.2, 0.6, 0.4], ...
+                                   'GPT_NORMAL', [0.8, 0.5, 0.3], ...
+                                   'HUMAN', [0.6, 0.3, 0.5]);
+            color = dataset_colors.(strrep(datasets{i_dataset}, '-', '_'));
+            
+            scatter(params_pooled, params_sep_mean, 40, color, 'filled', ...
+                   'MarkerFaceAlpha', 0.6, 'MarkerEdgeAlpha', 0.8);
+            
+            % Compute correlation
+            [r, p] = corr(params_pooled, params_sep_mean, 'rows', 'pairwise');
+            
+            % Format
+            xlabel('Pooled (120 trials)', 'FontSize', 9);
+            ylabel('Separate (mean of 3×40)', 'FontSize', 9);
+            title(sprintf('%s (r=%.2f)', param_names{i_param}, r), 'FontSize', 10);
+            axis square;
+            xlim(lims); ylim(lims);
+            
+            % Add dataset label on leftmost panel
+            if i_param == 1
+                text(-0.5, 0.5, datasets{i_dataset}, 'Units', 'normalized', ...
+                     'Rotation', 90, 'HorizontalAlignment', 'center', ...
+                     'FontSize', 11, 'FontWeight', 'bold');
+            end
+        end
+    end
+    
+    sgtitle('Block Consistency: Pooled vs. Separate Block Fitting', ...
+            'FontSize', 14, 'FontWeight', 'bold');
+    
+    % Save figure
+    exportgraphics(gcf, fullfile(output_dir, 'block_consistency_analysis.png'), 'Resolution', 300);
+    fprintf('    ✓ Saved: block_consistency_analysis.png\n');
+    
+    % ========================================================================
+    % STATISTICAL TESTS
+    % ========================================================================
+    
+    fprintf('\n    [DEBUG] Starting statistical tests...\n');
+    
+    % Print correlation summary
+    fprintf('\n    Block consistency correlations (pooled vs. mean of separate):\n');
+    for i_dataset = 1:numel(datasets)
+        fprintf('      %s:\n', datasets{i_dataset});
+        
+        % Safe indexing - extract dataset names properly
+        dataset_names_pooled = cell(numel(fits_pooled.subj), 1);
+        for i = 1:numel(fits_pooled.subj)
+            ds = fits_pooled.subj(i).data.dataset;
+            if iscell(ds)
+                dataset_names_pooled{i} = ds{1};
+            else
+                dataset_names_pooled{i} = ds;
+            end
+        end
+        
+        dataset_names_separate = cell(numel(fits_separate.subj), 1);
+        for i = 1:numel(fits_separate.subj)
+            ds = fits_separate.subj(i).data.dataset;
+            if iscell(ds)
+                dataset_names_separate{i} = ds{1};
+            else
+                dataset_names_separate{i} = ds;
+            end
+        end
+        
+        idx_pooled = strcmp(dataset_names_pooled, datasets{i_dataset});
+        idx_separate = strcmp(dataset_names_separate, datasets{i_dataset});
+        
+        n_subj = sum(idx_pooled);
+        subj_pooled_indices = find(idx_pooled);
+        subj_separate_indices = find(idx_separate);
+        
+        for i_param = 1:5
+            % Extract pooled
+            params_pooled = NaN(n_subj, 1);
+            for i_s = 1:n_subj
+                params_pooled(i_s) = fits_pooled.subj(subj_pooled_indices(i_s)).params.(param_names{i_param});
+            end
+            
+            % Extract separate
+            params_sep_mean = NaN(n_subj, 1);
+            for i_s = 1:n_subj
+                block_params = NaN(1, 3);
+                for i_block = 1:3
+                    block_params(i_block) = fits_separate.subj(subj_separate_indices(i_s)).params(i_block).(param_names{i_param});
+                end
+                params_sep_mean(i_s) = mean(block_params);
+            end
+            
+            [r, p] = corr(params_pooled, params_sep_mean, 'rows', 'pairwise');
+            fprintf('        %s: r=%.3f (p=%.4f)\n', param_names{i_param}, r, p);
+        end
+    end
+    
+    % Test parameter consistency across blocks (within-subject)
+    fprintf('\n    Testing parameter consistency across blocks (ANOVA):\n');
+    for i_dataset = 1:numel(datasets)
+        fprintf('      %s:\n', datasets{i_dataset});
+        
+        % Extract dataset names properly
+        dataset_names_separate = cell(numel(fits_separate.subj), 1);
+        for i = 1:numel(fits_separate.subj)
+            ds = fits_separate.subj(i).data.dataset;
+            if iscell(ds)
+                dataset_names_separate{i} = ds{1};
+            else
+                dataset_names_separate{i} = ds;
+            end
+        end
+        
+        idx_subj = strcmp(dataset_names_separate, datasets{i_dataset});
+        n_subj = sum(idx_subj);
+        subj_indices = find(idx_subj);
+        
+        for i_param = 1:5
+            % Extract parameters for each block (rows=subjects, cols=blocks)
+            params_block = NaN(n_subj, 3);
+            for i_s = 1:n_subj
+                for i_block = 1:3
+                    params_block(i_s, i_block) = ...
+                        fits_separate.subj(subj_indices(i_s)).params(i_block).(param_names{i_param});
+                end
+            end
+            
+            % One-way ANOVA: Are parameters different across blocks?
+            [p, tbl, stats] = anova1(params_block, [], 'off');
+            F_stat = tbl{2,5};  % F-statistic
+            
+            % Interpretation
+            if p < 0.05
+                sig_marker = '***';
+            elseif p < 0.10
+                sig_marker = '*';
+            else
+                sig_marker = '';
+            end
+            
+            fprintf('        %s: F(2,%d)=%.2f, p=%.3f %s\n', ...
+                    param_names{i_param}, tbl{3,3}, F_stat, p, sig_marker);
+        end
+    end
+    
+    % Compare model fit: pooled vs. separate
+    fprintf('\n    Model fit comparison:\n');
+    
+    % Overall (all subjects)
+    aic_pooled_vec = NaN(numel(fits_pooled.subj), 1);
+    for i = 1:numel(fits_pooled.subj)
+        aic_pooled_vec(i) = fits_pooled.subj(i).optim.AIC;
+    end
+    aic_pooled = mean(aic_pooled_vec);
+    
+    aic_separate_vec = NaN(numel(fits_separate.subj), 1);
+    for i = 1:numel(fits_separate.subj)
+        aic_separate_vec(i) = fits_separate.subj(i).optim.AIC;
+    end
+    aic_separate = mean(aic_separate_vec);
+    
+    fprintf('      ALL: Pooled AIC=%.2f, Separate AIC=%.2f (Δ=%.2f)\n', ...
+            aic_pooled, aic_separate, aic_separate - aic_pooled);
+    
+    % By dataset
+    for i_dataset = 1:numel(datasets)
+        % Extract dataset names properly
+        dataset_names_pooled = cell(numel(fits_pooled.subj), 1);
+        for i = 1:numel(fits_pooled.subj)
+            ds = fits_pooled.subj(i).data.dataset;
+            if iscell(ds)
+                dataset_names_pooled{i} = ds{1};
+            else
+                dataset_names_pooled{i} = ds;
+            end
+        end
+        
+        dataset_names_separate = cell(numel(fits_separate.subj), 1);
+        for i = 1:numel(fits_separate.subj)
+            ds = fits_separate.subj(i).data.dataset;
+            if iscell(ds)
+                dataset_names_separate{i} = ds{1};
+            else
+                dataset_names_separate{i} = ds;
+            end
+        end
+        
+        idx_pooled = strcmp(dataset_names_pooled, datasets{i_dataset});
+        idx_separate = strcmp(dataset_names_separate, datasets{i_dataset});
+        
+        % Extract AICs safely
+        subj_pooled_indices = find(idx_pooled);
+        aic_pooled_ds_vec = NaN(numel(subj_pooled_indices), 1);
+        for i = 1:numel(subj_pooled_indices)
+            aic_pooled_ds_vec(i) = fits_pooled.subj(subj_pooled_indices(i)).optim.AIC;
+        end
+        aic_pooled_ds = mean(aic_pooled_ds_vec);
+        
+        subj_separate_indices = find(idx_separate);
+        aic_separate_ds_vec = NaN(numel(subj_separate_indices), 1);
+        for i = 1:numel(subj_separate_indices)
+            aic_separate_ds_vec(i) = fits_separate.subj(subj_separate_indices(i)).optim.AIC;
+        end
+        aic_separate_ds = mean(aic_separate_ds_vec);
+        
+        fprintf('      %s: Pooled AIC=%.2f, Separate AIC=%.2f (Δ=%.2f)\n', ...
+                datasets{i_dataset}, aic_pooled_ds, aic_separate_ds, ...
+                aic_separate_ds - aic_pooled_ds);
+    end
+    
+    fprintf('\n  ✓ Block consistency analysis complete\n\n');
+    
+catch e
+    fprintf('\n    ❌ Error occurred: %s\n', e.message);
+    fprintf('    Error identifier: %s\n', e.identifier);
+    fprintf('    Stack trace:\n');
+    for i = 1:length(e.stack)
+        fprintf('      [%d] %s (line %d)\n', i, e.stack(i).name, e.stack(i).line);
+    end
+    fprintf('    Continuing with remaining analyses...\n\n');
+end
