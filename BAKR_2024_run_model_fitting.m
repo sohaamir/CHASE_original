@@ -53,7 +53,7 @@ end
 
 %% model fitting
 % get data
-load(fullfile(project_folder,'data','llm_data_5.mat'));
+load(fullfile(project_folder,'data','llm_data.mat'));
 
 fprintf('========================================\n');
 fprintf('PREPROCESSING LLM DATA\n');
@@ -147,7 +147,7 @@ fprintf('========================================\n\n');
 
 try
     % Reload data in table format for new_T
-    load(fullfile(project_folder,'data','llm_data_5.mat'));
+    load(fullfile(project_folder,'data','llm_data.mat'));
     if ismember('n_trials', data.Properties.VariableNames)
         data.n_trials = [];
     end
@@ -215,15 +215,15 @@ fprintf('========================================\n\n');
 
 %% Identify subjects for supplementary analyses
 % Use all subjects that were successfully fit
-idx_fmri = find(arrayfun(@(subj) isfield(subj, 'optim') && ~isempty(subj.optim), fits(1).subj));
+idx_valid_fits = find(arrayfun(@(subj) isfield(subj, 'optim') && ~isempty(subj.optim), fits(1).subj));
 
-if isempty(idx_fmri)
+if isempty(idx_valid_fits)
     warning('No successfully fitted subjects found. Skipping supplementary analyses.');
     fprintf('Main fitting complete. Exiting...\n');
     return;
 end
 
-fprintf('Using %d subjects for supplementary analyses\n\n', numel(idx_fmri));
+fprintf('Using %d subjects for supplementary analyses\n\n', numel(idx_valid_fits));
 
 %% determining the learning rule
 % get data (reload from original)
@@ -278,10 +278,10 @@ try
             end
         end
     end
-    fprintf('idx_fmri subjects: %s\n', mat2str(idx_fmri'));
+    fprintf('idx_valid_fits subjects: %s\n', mat2str(idx_valid_fits'));
     fprintf('=== END DIAGNOSTIC ===\n\n');
     
-    sims = BAKR_2024_simulate_data(fits_LR, idx_fmri);
+    sims = BAKR_2024_simulate_data(fits_LR, idx_valid_fits);
 
     % ADD THIS DIAGNOSTIC:
     fprintf('Checking simulated data structure:\n');
@@ -308,7 +308,7 @@ end
 %% model recovery: full model
 try
     fprintf('Running model recovery for full model...\n');
-    sims = BAKR_2024_simulate_data(fits, idx_fmri);
+    sims = BAKR_2024_simulate_data(fits, idx_valid_fits);
     
     models = {fits.model};
     sim_fits = mn_fit(sims', models);
@@ -325,7 +325,7 @@ try
     
     [sims,params] = deal([]);
     for k = 0:3
-        [new_sims,new_params] = BAKR_2024_simulate_data(fits(1), idx_fmri, k);
+        [new_sims,new_params] = BAKR_2024_simulate_data(fits(1), idx_valid_fits, k);
         params = [params; new_params];
         sims = [sims new_sims];
     end
@@ -355,12 +355,136 @@ catch e
     end
 end
 
+%% parameter recovery - BY DATASET
+
+fprintf('\n========================================\n');
+fprintf('PARAMETER RECOVERY BY DATASET\n');
+fprintf('========================================\n\n');
+
+try
+    % DEBUG: Check dataset extraction
+    fprintf('\n=== DEBUGGING DATASET EXTRACTION ===\n');
+    
+    % Step 1: Extract data structs
+    data_structs = {fits(1).subj.data};
+    fprintf('Number of subjects: %d\n', numel(data_structs));
+    fprintf('First data struct fields: %s\n', strjoin(fieldnames(data_structs{1}), ', '));
+    
+    % Step 2: Check dataset field
+    fprintf('\nFirst subject dataset field:\n');
+    fprintf('  Class: %s\n', class(data_structs{1}.dataset));
+    fprintf('  Size: %s\n', mat2str(size(data_structs{1}.dataset)));
+    if iscell(data_structs{1}.dataset)
+        fprintf('  Content: {%s}\n', data_structs{1}.dataset{1});
+    end
+    
+    % Step 3: Try extraction
+    datasets_raw = cellfun(@(d) d.dataset, data_structs, 'UniformOutput', false);
+    fprintf('\nAfter cellfun:\n');
+    fprintf('  Class: %s\n', class(datasets_raw));
+    fprintf('  Size: %s\n', mat2str(size(datasets_raw)));
+    fprintf('  First element class: %s\n', class(datasets_raw{1}));
+    if iscell(datasets_raw{1})
+        fprintf('  First element content: {%s}\n', datasets_raw{1}{1});
+    end
+    
+    fprintf('=== END DEBUG ===\n\n');
+    % Extract all dataset fields
+    datasets_raw = cellfun(@(d) d.dataset, {fits(1).subj.data}, 'UniformOutput', false);
+    
+    % Flatten nested cells: {{'HUMAN'}, {'GPT'}} → {'HUMAN'; 'GPT'}
+    datasets = unique(vertcat(datasets_raw{:}));
+    
+    fprintf('Running parameter recovery for %d datasets:\n', numel(datasets));
+    for i = 1:numel(datasets)
+        fprintf('  %d. %s\n', i, datasets{i});
+    end
+    fprintf('\n');
+    
+    % Initialize storage
+    prec_by_dataset = struct();
+    
+    % Loop through each dataset
+    for i_dataset = 1:numel(datasets)
+        curr_dataset = datasets{i_dataset};
+        fprintf('Processing dataset %d/%d: %s\n', i_dataset, numel(datasets), curr_dataset);
+        
+        % Get subjects from this dataset
+        idx_dataset = find(cellfun(@(d) strcmp(d.dataset, curr_dataset), {fits(1).subj.data}));
+        
+        if isempty(idx_dataset)
+            fprintf('  ⚠️  No subjects found for %s, skipping\n\n', curr_dataset);
+            continue;
+        end
+        
+        fprintf('  Found %d subjects\n', numel(idx_dataset));
+        
+        % Generate simulations and fit for each k level
+        [sims_dataset, params_dataset] = deal([]);
+        
+        for k = 0:3
+            fprintf('    Simulating k=%d... ', k);
+            
+            % Simulate with parameter override
+            [new_sims, new_params] = BAKR_2024_simulate_data(fits(1), idx_dataset, k);
+            
+            % Accumulate
+            params_dataset = [params_dataset; new_params];
+            sims_dataset = [sims_dataset new_sims];
+            
+            fprintf('done (%d sims)\n', numel(new_sims));
+        end
+        
+        fprintf('  Fitting %d simulations... ', numel(sims_dataset));
+        
+        % Fit the simulated data
+        model = fits(1).model;
+        fits_est = mn_fit(sims_dataset', model);
+        
+        fprintf('done\n');
+        
+        % Extract estimates
+        estimates = zeros(numel(fits_est.subj), numel(model.params));
+        for i_subj = 1:numel(fits_est.subj)
+            param_struct = fits_est.subj(i_subj).params;
+            for p = 1:numel(model.params)
+                estimates(i_subj, p) = param_struct.(model.params(p).name);
+            end
+        end
+        
+        % Store results
+        prec_by_dataset.(strrep(curr_dataset, '-', '_')).model = model;
+        prec_by_dataset.(strrep(curr_dataset, '-', '_')).params.est = estimates;
+        prec_by_dataset.(strrep(curr_dataset, '-', '_')).params.gen = params_dataset;
+        prec_by_dataset.(strrep(curr_dataset, '-', '_')).dataset = curr_dataset;
+        prec_by_dataset.(strrep(curr_dataset, '-', '_')).sims = sims_dataset;
+        
+        fprintf('  ✓ Parameter recovery complete for %s\n\n', curr_dataset);
+    end
+    
+    % Save results
+    save(fullfile(output_dir,'supplementary','parameter_recovery_by_dataset.mat'), 'prec_by_dataset');
+    
+    fprintf('✓ All datasets complete\n');
+    fprintf('  Saved: parameter_recovery_by_dataset.mat\n\n');
+    
+catch e
+    warning('Parameter recovery by dataset failed: %s', e.message);
+    fprintf('  Stack trace:\n');
+    for i = 1:length(e.stack)
+        fprintf('    [%d] %s (line %d)\n', i, e.stack(i).name, e.stack(i).line);
+    end
+    fprintf('\n');
+end
+
+fprintf('========================================\n\n');
+
 %% effect of lowering the upper bound on gamma
 try
     fprintf('Testing effect of gamma bounds...\n');
     
     % Reload and preprocess data
-    load(fullfile(project_folder,'data','llm_data_5.mat'));
+    load(fullfile(project_folder,'data','llm_data.mat'));
     if ismember('n_trials', data.Properties.VariableNames)
         data.n_trials = [];
     end
@@ -369,8 +493,8 @@ try
                           'exceptions',{'choice_own','choice_other','missing'});
     
     model = BAKR_2024_CHASE_config('CH','fitted',3,'RW-freq');
-    gamma = arrayfun(@(subj) subj.params.gamma, fits(1).subj(idx_fmri));
-    idx_data = idx_fmri(gamma > 2.5);
+    gamma = arrayfun(@(subj) subj.params.gamma, fits(1).subj(idx_valid_fits));
+    idx_data = idx_valid_fits(gamma > 2.5);
     
     if ~isempty(idx_data)
         UBs = [Inf,10,5,2.5,1,0.5];
